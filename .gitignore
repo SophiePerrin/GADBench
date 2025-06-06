@@ -1,5 +1,5 @@
 __pycache__/
-datasets/
+# datasets/
 modes/__pycache__/
 catboost_info/
 results/
