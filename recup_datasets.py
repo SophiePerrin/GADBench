@@ -30,7 +30,7 @@ if args.datasets is not None:
 '''
 
 for dataset_name in datasets:
-    data = ut.Dataset(dataset_name)
+    data = ut.Dataset(name=dataset_name, prefix='GADBench/datasets/')
     # afficher des infos de base sur chaque graphe
     g = data.graph
     print(f"{dataset_name} → {g.num_nodes()} nodes, {g.num_edges()} edges")
