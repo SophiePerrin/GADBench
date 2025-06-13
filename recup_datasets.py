@@ -119,6 +119,8 @@ for dataset_name in datasets:
         similarities[s, d] = w
         similarities[d, s] = w  # si le graphe est non orienté (symétrique)
 
+    
+
     # ================================
     # 4. Sauvegarde dans un fichier .npz compressé
     # ================================
@@ -135,8 +137,7 @@ for dataset_name in datasets:
 
 
 
-'''
-# %%    
+'''  
     # sauvegarder les features ou graphes
     X = g.ndata['feature'].cpu().numpy()
     np.save(f"{dataset_name}_features.npy", X)
