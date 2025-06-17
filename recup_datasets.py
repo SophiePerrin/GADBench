@@ -1,6 +1,7 @@
 # import argparse
 import utils as ut
 import os
+import s3fs
 import numpy as np
 import dgl
 import networkx as nx
@@ -120,11 +121,85 @@ for dataset_name in datasets:
     for s, d, w in zip(src, dst, weights):
         A[s, d] = w
         #A[d, s] = w  # si le graphe est non orienté (symétrique)
-
+    '''
     # Sauvegarde de x, y et A
     np.save(f"x_{dataset_name}", x)
     np.save(f"y_{dataset_name}", y)
     np.save(f"A_{dataset_name}", A)
+    '''
+    
+    BUCKET = "sophieperrinlyon2"
+    PREFIX = "albert/"
+
+    fs = s3fs.S3FileSystem()
+
+    for name, arr in [(f"x_{dataset_name}", x), (f"y_{dataset_name}", y), (f"A_{dataset_name}", A)]:
+        path = f"{BUCKET}/{PREFIX}{name}"
+        with fs.open(path, "wb") as f:
+            np.save(f, arr)
+            print(f"  ✔ Uploaded {name}")
+    
+'''
+    # 1. Reconstruire le masque users/items
+# Ici j'utilise le fait que seuls les users ont un label >= 0.
+    labels = g.ndata['label']               # shape [10984]
+    is_user = labels >= 0                   # True = user, False = item
+    is_item = ~is_user
+
+# 2. Comptage des nœuds de chaque type
+    num_users = is_user.sum().item()
+    num_items = is_item.sum().item()
+    print(f"Users détectés : {num_users}")
+    print(f"Items détectés : {num_items}")
+
+# 3. Récupérer toutes les arêtes
+    src, dst = g.edges()
+
+# 4. Compter les 4 cas de figure
+    mask_ui = is_user[src] & is_item[dst]    # user → item
+    mask_iu = is_item[src] & is_user[dst]    # item → user
+    mask_uu = is_user[src] & is_user[dst]    # user → user
+    mask_ii = is_item[src] & is_item[dst]    # item → item
+
+    counts = {
+        "user→item" : mask_ui.sum().item(),
+        "item→user" : mask_iu.sum().item(),
+        "user→user" : mask_uu.sum().item(),
+        "item→item" : mask_ii.sum().item(),
+        "total edges": src.shape[0]
+    }
+
+    for k, v in counts.items():
+        print(f"{k:10s} : {v}")
+
+# 5. Pourcentage user→item
+    pct_ui = counts["user→item"] / counts["total edges"] * 100
+    print(f"\n% user→item  : {pct_ui:.2f}%")
+'''
+'''
+import os
+import s3fs
+import numpy as np
+
+#BUCKET_OUT = "sophieperrinlyon2"
+
+
+BUCKET = "sophieperrinlyon2"
+PREFIX = "albert/"
+
+fs = s3fs.S3FileSystem()
+
+x_reddit = np.load("x_reddit.npy")
+y_reddit = np.load("y_reddit.npy")
+A_reddit = np.load("A_reddit.npy")
+
+
+for name, arr in [("x_reddit.npy", x_reddit), ("y_reddit.npy", y_reddit), ("A_reddit.npy", A_reddit)]:
+    path = f"{BUCKET}/{PREFIX}{name}"
+    with fs.open(path, "wb") as f:
+        np.save(f, arr)
+    print(f"  ✔ Uploaded {name}")
+'''
 '''
     # ================================
     # 4. Sauvegarde dans un fichier .npz compressé
@@ -141,6 +216,20 @@ for dataset_name in datasets:
     )
 
 '''
+
+'''  
+    # sauvegarder les features ou graphes
+    X = g.ndata['feature'].cpu().numpy()
+    np.save(f"{dataset_name}_features.npy", X)
+    # convertir en networkx
+    nx_graph = dgl.to_networkx(g)
+    with open(f"{dataset_name}.gpickle", "wb") as f:
+        pickle.dump(nx_graph, f)
+
+'''
+
+# %%
+
 
 '''  
     # sauvegarder les features ou graphes
