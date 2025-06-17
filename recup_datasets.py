@@ -17,6 +17,13 @@ def describe_dgl_graph(g, name, max_examples=5):
     print("-" * 40)
     print(f"Nombre de nœuds : {g.num_nodes()}")
     print(f"Nombre d'arêtes : {g.num_edges()}")
+    
+    nxg = g.to_networkx()
+    print("Le graphe est-il orienté ?", nxg.is_directed())
+
+    # Affichage de quelques infos de base
+    print(f"Node feature shape: {g.ndata['feature'].shape}")
+    print(f"Label present: {'label' in g.ndata}")
 
     print("\n🔑 Attributs des nœuds :")
     for key in g.ndata.keys():
@@ -39,7 +46,6 @@ def describe_dgl_graph(g, name, max_examples=5):
     src, dst = g.edges()
     for i in range(min(max_examples, len(src))):
         print(f"   {src[i].item()} → {dst[i].item()}")
-
 
 
 # inutile tant que je fixe ma liste de datasets en la réduisant, comme ci-dessous, à ceux que je veux réellement
@@ -73,10 +79,6 @@ for dataset_name in datasets:
     data = ut.Dataset(name=dataset_name, prefix='GADBench/datasets/')
     g = data.graph  # Récupération du graphe DGL
 
-    # Affichage de quelques infos de base
-    print(f"{dataset_name} → {g.num_nodes()} nodes, {g.num_edges()} edges")
-    print(f"Node feature shape: {g.ndata['feature'].shape}")
-    print(f"Label present: {'label' in g.ndata}")
     describe_dgl_graph(g, dataset_name, 2)
 
     # ================================
@@ -101,7 +103,7 @@ for dataset_name in datasets:
     num_nodes = g.num_nodes()
 
     # Initialisation d'une matrice (num_nodes x num_nodes) remplie de zéros
-    similarities = np.zeros((num_nodes, num_nodes))
+    A = np.zeros((num_nodes, num_nodes))
 
     # Récupération des arêtes (liste des paires source → destination)
     src, dst = g.edges()
@@ -116,11 +118,14 @@ for dataset_name in datasets:
 
     # Remplissage de la matrice de similarités avec les poids
     for s, d, w in zip(src, dst, weights):
-        similarities[s, d] = w
-        similarities[d, s] = w  # si le graphe est non orienté (symétrique)
+        A[s, d] = w
+        #A[d, s] = w  # si le graphe est non orienté (symétrique)
 
-    
-
+    # Sauvegarde de x, y et A
+    np.save(f"x_{dataset_name}", x)
+    np.save(f"y_{dataset_name}", y)
+    np.save(f"A_{dataset_name}", A)
+'''
     # ================================
     # 4. Sauvegarde dans un fichier .npz compressé
     # ================================
@@ -132,10 +137,10 @@ for dataset_name in datasets:
         os.path.join(output_dir, f"{graph_name}.npz"),
         x=x,
         y=y,
-        similarities=similarities
+        A=A
     )
 
-
+'''
 
 '''  
     # sauvegarder les features ou graphes
