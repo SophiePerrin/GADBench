@@ -18,7 +18,7 @@ def describe_dgl_graph(g, name, max_examples=5):
     print("-" * 40)
     print(f"Nombre de nœuds : {g.num_nodes()}")
     print(f"Nombre d'arêtes : {g.num_edges()}")
-    
+
     nxg = g.to_networkx()
     print("Le graphe est-il orienté ?", nxg.is_directed())
 
@@ -49,30 +49,8 @@ def describe_dgl_graph(g, name, max_examples=5):
         print(f"   {src[i].item()} → {dst[i].item()}")
 
 
-# inutile tant que je fixe ma liste de datasets en la réduisant, comme ci-dessous, à ceux que je veux réellement
-'''
-parser = argparse.ArgumentParser()
-parser.add_argument('--datasets', type=str, default=None)
-args = parser.parse_args()
-'''
-
 datasets = ['reddit', 'weibo']
 
-
-# inutile tant que je fixe ma liste de datasets en la réduisant, comme ci-dessus, à ceux que je veux réellement
-'''
-if args.datasets is not None:
-    if '-' in args.datasets:
-        st, ed = args.datasets.split('-')
-        datasets = datasets[int(st):int(ed)+1]
-    else:
-        datasets = [datasets[int(t)] for t in args.datasets.split(',')]
-    print('Evaluated Datasets: ', datasets)
-'''
-
-# Dossier où les fichiers de sortie seront enregistrés
-output_dir = "export_graph_data"
-os.makedirs(output_dir, exist_ok=True)  # Création s'il n'existe pas
 
 # Boucle sur tous les datasets
 for dataset_name in datasets:
@@ -120,25 +98,22 @@ for dataset_name in datasets:
     # Remplissage de la matrice de similarités avec les poids
     for s, d, w in zip(src, dst, weights):
         A[s, d] = w
-        #A[d, s] = w  # si le graphe est non orienté (symétrique)
-    '''
-    # Sauvegarde de x, y et A
-    np.save(f"x_{dataset_name}", x)
-    np.save(f"y_{dataset_name}", y)
-    np.save(f"A_{dataset_name}", A)
-    '''
+        # A[d, s] = w  # si le graphe est non orienté (symétrique)
     
     BUCKET = "sophieperrinlyon2"
     PREFIX = "albert/"
 
     fs = s3fs.S3FileSystem()
 
-    for name, arr in [(f"x_{dataset_name}", x), (f"y_{dataset_name}", y), (f"A_{dataset_name}", A)]:
+    for name, arr in [(f"x_{dataset_name}.npy", x), (f"y_{dataset_name}.npy", y), (f"A_{dataset_name}.npy", A)]:
         path = f"{BUCKET}/{PREFIX}{name}"
         with fs.open(path, "wb") as f:
             np.save(f, arr)
             print(f"  ✔ Uploaded {name}")
-    
+
+
+
+
 '''
     # 1. Reconstruire le masque users/items
 # Ici j'utilise le fait que seuls les users ont un label >= 0.
@@ -228,7 +203,6 @@ for name, arr in [("x_reddit.npy", x_reddit), ("y_reddit.npy", y_reddit), ("A_re
 
 '''
 
-# %%
 
 
 '''  
