@@ -8,6 +8,7 @@ import networkx as nx
 import pickle
 import warnings
 import torch
+from torch import sparse
 import numpy as np
 warnings.filterwarnings("ignore")
 seed_list = list(range(3407, 10000, 10))
@@ -47,6 +48,46 @@ def describe_dgl_graph(g, name, max_examples=5):
     src, dst = g.edges()
     for i in range(min(max_examples, len(src))):
         print(f"   {src[i].item()} → {dst[i].item()}")
+    '''
+    print(g.etypes)
+    for etype in g.canonical_etypes:
+        print(f"{etype} features:", g.edges[etype].data.keys())
+    print(g.edges[('_N', '_E', '_N')].data['count'])
+    for etype in g.canonical_etypes:
+        for key in g.edges[etype].data.keys():
+            print(f"{etype} - {key}:")
+            print(g.edges[etype].data[key])
+
+    src, dst = g.edges(form='uv', etype=('_N', '_E', '_N'))
+    counts = g.edges[('_N', '_E', '_N')].data['count']
+
+    for i, (u, v, c) in enumerate(zip(src, dst, counts)):
+        if i >= 100:
+            break
+        print(f"{u.item()} -> {v.item()} : count = {c.item()}")
+    '''
+    '''
+    # 1. Récupérer les arêtes et la feature 'count'
+    src, dst = g.edges(form='uv', etype=('_N', '_E', '_N'))
+    counts = g.edges[('_N', '_E', '_N')].data['count']          # (num_edges, 1) ou (num_edges,)
+
+# 2. Construire un masque booléen : True si count > 1
+    mask = (counts.squeeze() > 1)   # .squeeze() enlève la dimension inutile si besoin
+
+# 3. Appliquer le masque pour ne garder que les arêtes voulues
+    src_keep = src[mask]
+    dst_keep = dst[mask]
+    count_keep = counts[mask]
+
+# 4. Afficher les arêtes filtrées
+    for u, v, c in zip(src_keep, dst_keep, count_keep):
+        print(f"{u.item()} -> {v.item()} : count = {c.item()}")
+    
+    for ntype in g.ntypes:
+        print(f"Attributs des nœuds de type {ntype} :")
+        print(list(g.nodes[ntype].data.keys()))
+
+    '''
 
 
 datasets = ['reddit', 'weibo']
@@ -90,16 +131,54 @@ for dataset_name in datasets:
     dst = dst.cpu().numpy()
 
     # Si les arêtes ont un attribut 'weight', on l’utilise ; sinon poids unitaire
-    if 'weight' in g.edata:
-        weights = g.edata['weight'].cpu().numpy()
+    if 'count' in g.edata:
+        count = g.edata['count']         # tensor shape: [N, 1]
+        count = count.squeeze()          # shape devient [N]
+        count = count.cpu().numpy()      # devient array([1., 2., ...])
     else:
-        weights = np.ones(len(src))  # poids par défaut = 1
+        count = np.ones(len(src))  # poids par défaut = 1
 
     # Remplissage de la matrice de similarités avec les poids
-    for s, d, w in zip(src, dst, weights):
+    for s, d, w in zip(src, dst, count):
         A[s, d] = w
         # A[d, s] = w  # si le graphe est non orienté (symétrique)
-    
+    print(f"matrice d'adjacence : {A}")
+
+    if np.allclose(A.T, A):
+        print("matrice symétrique")
+    else:
+        print("matrice pas symétrique")
+
+    print(f"Le graphe est-il homogène ? {g.is_homogeneous}")
+
+# Autre méthode pour matrice d'adjacence
+    # Construire la matrice sparse pondérée
+    # Si src et dst sont des numpy arrays, on les convertit en torch tensors
+    src_tensor = torch.tensor(src) if not torch.is_tensor(src) else src
+    dst_tensor = torch.tensor(dst) if not torch.is_tensor(dst) else dst
+
+    adj = torch.sparse_coo_tensor(
+        indices=torch.stack([src_tensor, dst_tensor]),
+        values=count,
+        size=(num_nodes, num_nodes)
+    )
+
+# adj contient les poids des arêtes
+    print(f"matrice d'adjacence autre méthode de calcul : {adj.to_dense()}")  # Affiche la matrice dense
+    # Si adj est sparse
+    dense_adj = adj.to_dense()
+
+    # Convertir en numpy array
+    np_adj = dense_adj.cpu().numpy()
+    if np.allclose(np_adj.T,np_adj):
+        print("matrice symétrique")
+    else:
+        print("matrice pas symétrique")
+
+
+
+
+
     BUCKET = "sophieperrinlyon2"
     PREFIX = "albert/"
 
