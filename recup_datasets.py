@@ -13,6 +13,44 @@ import numpy as np
 warnings.filterwarnings("ignore")
 seed_list = list(range(3407, 10000, 10))
 
+import torch
+import numpy as np
+
+
+def analyser_arêtes(g, poids_key='count'):
+    src, dst = g.edges()
+    weights = g.edata[poids_key]
+
+    num_edges = len(src)
+    print(f"\n🔢 Nombre total d’arêtes : {num_edges}")
+
+    # Auto-boucles et arêtes entre nœuds différents
+    mask_self = src == dst
+    mask_diff = src != dst
+
+    weights_self = weights[mask_self]
+    weights_diff = weights[mask_diff]
+
+    print(f"🔁 Auto-boucles : {len(weights_self)} arêtes, poids min = {weights_self.min().item() if len(weights_self) > 0 else None}, max = {weights_self.max().item() if len(weights_self) > 0 else None}")
+    print(f"🔗 Arêtes entre nœuds différents : {len(weights_diff)} arêtes, poids min = {weights_diff.min().item() if len(weights_diff) > 0 else None}, max = {weights_diff.max().item() if len(weights_diff) > 0 else None}")
+
+    # Conversion CPU pour comparaison set
+    src_np = src.cpu().numpy()
+    dst_np = dst.cpu().numpy()
+    weights_np = weights.cpu().numpy()
+
+    edges_np = np.stack((src_np, dst_np), axis=1)
+    edge_set = set(map(tuple, edges_np))
+
+    sym_mask = np.array([(j, i) in edge_set for i, j in edges_np])
+    asym_mask = ~sym_mask
+
+    weights_sym = weights_np[sym_mask]
+    weights_asym = weights_np[asym_mask]
+
+    print(f"🔄 Arêtes avec arête inverse : {len(weights_sym)} arêtes, poids min = {weights_sym.min() if len(weights_sym) > 0 else None}, max = {weights_sym.max() if len(weights_sym) > 0 else None}")
+    print(f"↪️ Arêtes sans arête inverse : {len(weights_asym)} arêtes, poids min = {weights_asym.min() if len(weights_asym) > 0 else None}, max = {weights_asym.max() if len(weights_asym) > 0 else None}")
+
 
 def describe_dgl_graph(g, name, max_examples=5):
     print(f"📊 Résumé du graphe DGL du jeu de données {name}")
@@ -152,6 +190,7 @@ def describe_dgl_graph(g, name, max_examples=5):
         print("✅ Le graphe est symétrique : pour chaque arête i → j, il existe j → i.")
     else:
         print(f"⚠️ Le graphe est orienté : {len(asym_edges)} arêtes n’ont pas leur inverse.")
+    analyser_arêtes(g)
 
 
 ##########################################
