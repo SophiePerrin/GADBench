@@ -19,6 +19,7 @@ def describe_dgl_graph(g, name, max_examples=5):
     print("-" * 40)
     print(f"Nombre de nœuds : {g.num_nodes()}")
     print(f"Nombre d'arêtes : {g.num_edges()}")
+    print(g)
 
     nxg = g.to_networkx()
     print("Le graphe est-il orienté ?", nxg.is_directed())
@@ -26,13 +27,13 @@ def describe_dgl_graph(g, name, max_examples=5):
     # Affichage de quelques infos de base
     print(f"Node feature shape: {g.ndata['feature'].shape}")
     print(f"Label present: {'label' in g.ndata}")
-
+    
     print("\n🔑 Attributs des nœuds :")
     for key in g.ndata.keys():
         print(f" - {key}: shape = {g.ndata[key].shape}")
         if max_examples > 0:
             print(f"   Exemple : {g.ndata[key][:max_examples]}")
-
+    
     print("\n🔑 Attributs des arêtes :")
     for key in g.edata.keys():
         print(f" - {key}: shape = {g.edata[key].shape}")
@@ -43,7 +44,7 @@ def describe_dgl_graph(g, name, max_examples=5):
     for mask in ['train_mask', 'val_mask', 'test_mask']:
         if mask in g.ndata:
             print(f" - {mask} → {g.ndata[mask].sum().item()} nœuds")
-
+    
     print("\n🔁 Quelques arêtes :")
     src, dst = g.edges()
     for i in range(min(max_examples, len(src))):
@@ -89,7 +90,71 @@ def describe_dgl_graph(g, name, max_examples=5):
 
     '''
 
+    print(f"Le graphe est-il homogène ? {g.is_homogeneous}")
+    print(f"Le graphe est-il unibipartite ? {g.is_unibipartite}")
+    print(f"Résultats de has nodes : {g.has_nodes}")
 
+# Autre méthode pour matrice d'adjacence
+    # Construire la matrice sparse pondérée
+    # Si src et dst sont des numpy arrays, on les convertit en torch tensors
+    src_tensor = torch.tensor(src) if not torch.is_tensor(src) else src
+    dst_tensor = torch.tensor(dst) if not torch.is_tensor(dst) else dst
+    if 'count' in g.edata:
+        count = g.edata['count']         # tensor shape: [N, 1]
+        count = count.squeeze()          # shape devient [N]
+    
+    num_nodes = g.num_nodes()
+
+    adj = torch.sparse_coo_tensor(
+        indices=torch.stack([src_tensor, dst_tensor]),
+        values=count,
+        size=(num_nodes, num_nodes)
+    )
+
+# adj contient les poids des arêtes
+    print(f"matrice d'adjacence autre méthode de calcul : {adj.to_dense()}")  # Affiche la matrice dense
+    # Si adj est sparse
+    dense_adj = adj.to_dense()
+
+    # Convertir en numpy array
+    np_adj = dense_adj.cpu().numpy()
+    if np.allclose(np_adj.T,np_adj):
+        print("matrice symétrique")
+    else:
+        print("matrice pas symétrique")
+
+###
+    src, dst = g.edges()
+    num_edges = len(src)
+
+# Arêtes entre nœuds différents
+    mask_diff_nodes = src != dst
+    num_diff_edges = mask_diff_nodes.sum().item()
+
+    print(f"🔢 Nombre total d'arêtes : {num_edges}")
+    print(f"🔗 Arêtes entre nœuds différents : {num_diff_edges}")
+    print(f"🔁 Auto-boucles (i → i) : {num_edges - num_diff_edges}")
+
+    weights = g.edata['count']
+    min_w = weights.min().item()
+    max_w = weights.max().item()
+
+    print(f"📏 Plage des poids d’arêtes : min = {min_w}, max = {max_w}")
+
+    # Créer un ensemble des paires (i, j) et (j, i)
+    edge_set = set(zip(src.tolist(), dst.tolist()))
+    reverse_set = set((j, i) for (i, j) in edge_set if i != j)
+
+# Arêtes qui n'ont pas leur inverse
+    asym_edges = reverse_set - edge_set
+    print(len(asym_edges))
+    if len(asym_edges) == 0:
+        print("✅ Le graphe est symétrique : pour chaque arête i → j, il existe j → i.")
+    else:
+        print(f"⚠️ Le graphe est orienté : {len(asym_edges)} arêtes n’ont pas leur inverse.")
+
+
+##########################################
 datasets = ['reddit', 'weibo']
 
 
@@ -143,41 +208,6 @@ for dataset_name in datasets:
         A[s, d] = w
         # A[d, s] = w  # si le graphe est non orienté (symétrique)
     print(f"matrice d'adjacence : {A}")
-
-    if np.allclose(A.T, A):
-        print("matrice symétrique")
-    else:
-        print("matrice pas symétrique")
-
-    print(f"Le graphe est-il homogène ? {g.is_homogeneous}")
-
-# Autre méthode pour matrice d'adjacence
-    # Construire la matrice sparse pondérée
-    # Si src et dst sont des numpy arrays, on les convertit en torch tensors
-    src_tensor = torch.tensor(src) if not torch.is_tensor(src) else src
-    dst_tensor = torch.tensor(dst) if not torch.is_tensor(dst) else dst
-
-    adj = torch.sparse_coo_tensor(
-        indices=torch.stack([src_tensor, dst_tensor]),
-        values=count,
-        size=(num_nodes, num_nodes)
-    )
-
-# adj contient les poids des arêtes
-    print(f"matrice d'adjacence autre méthode de calcul : {adj.to_dense()}")  # Affiche la matrice dense
-    # Si adj est sparse
-    dense_adj = adj.to_dense()
-
-    # Convertir en numpy array
-    np_adj = dense_adj.cpu().numpy()
-    if np.allclose(np_adj.T,np_adj):
-        print("matrice symétrique")
-    else:
-        print("matrice pas symétrique")
-
-
-
-
 
     BUCKET = "sophieperrinlyon2"
     PREFIX = "albert/"
@@ -294,3 +324,5 @@ for name, arr in [("x_reddit.npy", x_reddit), ("y_reddit.npy", y_reddit), ("A_re
         pickle.dump(nx_graph, f)
 
 '''
+
+
