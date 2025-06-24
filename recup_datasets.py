@@ -16,6 +16,12 @@ seed_list = list(range(3407, 10000, 10))
 import torch
 import numpy as np
 
+#############################################
+
+# Etude des caractéristiques des graphes de données
+
+#############################################
+
 
 def analyser_arêtes(g, poids_key='count'):
     src, dst = g.edges()
@@ -193,7 +199,13 @@ def describe_dgl_graph(g, name, max_examples=5):
     analyser_arêtes(g)
 
 
-##########################################
+#############################################
+
+# Etude des caractéristiques des graphes de données
+
+#############################################
+
+
 datasets = ['reddit', 'weibo']
 
 
@@ -234,7 +246,7 @@ for dataset_name in datasets:
     src = src.cpu().numpy()
     dst = dst.cpu().numpy()
 
-    # Si les arêtes ont un attribut 'weight', on l’utilise ; sinon poids unitaire
+    # Si les arêtes ont un attribut 'count' (poids des arêtes), on l’utilise ; sinon poids unitaire
     if 'count' in g.edata:
         count = g.edata['count']         # tensor shape: [N, 1]
         count = count.squeeze()          # shape devient [N]
