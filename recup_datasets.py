@@ -18,7 +18,7 @@ import numpy as np
 
 #############################################
 
-# Etude des caractéristiques des graphes de données
+# Fonctions pour l'étude des caractéristiques des graphes de données
 
 #############################################
 
@@ -199,13 +199,60 @@ def describe_dgl_graph(g, name, max_examples=5):
     analyser_arêtes(g)
 
 
+# #### Etude des caractéristiques des datasets et création d'un dictionnaire pour pouvoir les manipuler séparément ensuite :
+
+datasets = ['reddit', 'weibo']
+
+graphs = {}  # Dictionnaire pour stocker les graphes
+
+# Boucle sur tous les datasets
+for dataset_name in datasets:
+    # Chargement du dataset avec GADBench
+    data = ut.Dataset(name=dataset_name, prefix='GADBench/datasets/')
+    g = data.graph  # Récupération du graphe DGL
+
+    graphs[dataset_name] = g  # Stockage du graphe avec son nom
+
+    describe_dgl_graph(g, dataset_name, 2)
+    
+
 #############################################
 
-# Etude des caractéristiques des graphes de données
+# Travail de transformation - adaptation du graphe de données reddit
+
+# Ce graphe est symétrique, et chaque arête a une arête inverse : on va donc simplement le transformer en graphe non orienté, 
+# en récupérant comme poids d'arête non orientée la somme des arêtes aller et retour entre les deux noeuds concernés
 
 #############################################
 
+g_reddit = graphs['reddit']
 
+
+
+
+#############################################
+
+# Travail de transformation - adaptation du graphe de données weibo
+
+# 
+
+
+#############################################
+
+g_weibo = graphs['weibo']
+
+
+
+
+#############################################
+
+# Export des noeuds+features (x), des labels (y) et de la matrice de similarité (issue de A remaniée) des graphes de données
+
+# WARNING : SERA A ADAPTER AUX NOMS DES GRAPHES REMANIES
+
+#############################################
+
+'''
 datasets = ['reddit', 'weibo']
 
 
@@ -271,7 +318,7 @@ for dataset_name in datasets:
             np.save(f, arr)
             print(f"  ✔ Uploaded {name}")
 
-
+'''
 
 
 '''
