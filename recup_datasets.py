@@ -208,7 +208,7 @@ def describe_dgl_graph(g, name, max_examples=5):
 #############################################
 
 
-def analyze_feature_redundancy(graph, variance_thresh=1e-5, corr_thresh=0.95, pca_variance=0.95):
+def analyze_feature_redundancy(graph, variance_thresh=1e-6, corr_thresh=0.95, pca_variance=0.95):
     import numpy as np
     import torch
     import matplotlib.pyplot as plt
@@ -227,15 +227,27 @@ def analyze_feature_redundancy(graph, variance_thresh=1e-5, corr_thresh=0.95, pc
     X_clean = X[:, var_idx]
 
     # 4. Mettre à jour les features du graphe
-    graph.ndata['feat'] = torch.tensor(X_clean, dtype=torch.float32)
+    graph.ndata['feature'] = torch.tensor(X_clean, dtype=torch.float32)
 
     # 5. Features très corrélées (calculé sur X d'origine, pas X_clean)
     corr_matrix = np.corrcoef(X, rowvar=False)
     np.fill_diagonal(corr_matrix, 0)
-    high_corr_pairs = np.where(np.abs(corr_matrix) > corr_thresh)
-    redundant_pairs = [(i, j) for i, j in zip(*high_corr_pairs) if i < j]
-    print(f"{len(redundant_pairs)} paires de features ont une corrélation > {corr_thresh} :")
-    for i, j in redundant_pairs[:10]:
+    
+    # Matrice de corrélation absolue
+    abs_corr = np.abs(corr_matrix)
+
+    # Indices de la partie triangulaire supérieure (hors diagonale)
+    triu_indices = np.triu_indices_from(abs_corr, k=1)
+
+    # Paires (i, j) avec leur valeur de corrélation
+    pair_scores = [(i, j, abs_corr[i, j]) for i, j in zip(*triu_indices)]  # 🔄 remplacé redundant_pairs
+
+    # Trier par corrélation décroissante
+    pair_scores.sort(key=lambda x: x[2], reverse=True)  # 🔄 nouveau : trie toutes les paires par corrélation
+
+    # Affichage
+    print("Top 10 des paires de features les plus corrélées :")  # 🔄 message plus clair
+    for i, j, score in pair_scores[:10]:                         # 🔄 on affiche les paires réellement les plus corrélées
         print(f"  Feature {i} ↔ Feature {j} (corr = {corr_matrix[i, j]:.2f})")
 
     # 6. PCA sur les features nettoyées
@@ -251,9 +263,10 @@ def analyze_feature_redundancy(graph, variance_thresh=1e-5, corr_thresh=0.95, pc
     plt.ylabel("Poids")
     plt.show()
 
+    # 8. Retourner les résultats
     return {
-        'features_supprimées_par_variance': low_var_idx.tolist(),
-        'paires_trop_corrélées': redundant_pairs,
+        'features_supprimées_par_variance': low_var_idx.tolist(),  # ✅ inchangé
+        'top_corr_pairs': pair_scores[:10],                        # 🔄 remplacé l'ancien 'redundant_pairs'
         'pca_model': pca
     }
 
@@ -487,7 +500,3 @@ for name, arr in [("x_reddit.npy", x_reddit), ("y_reddit.npy", y_reddit), ("A_re
         pickle.dump(nx_graph, f)
 
 '''
-
-
-
-
