@@ -1,3 +1,4 @@
+
 # import argparse
 import utils as ut
 import os
@@ -15,6 +16,8 @@ seed_list = list(range(3407, 10000, 10))
 
 import torch
 import numpy as np
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
 
 #############################################
 
@@ -198,6 +201,62 @@ def describe_dgl_graph(g, name, max_examples=5):
         print(f"⚠️ Le graphe est orienté : {len(asym_edges)} arêtes n’ont pas leur inverse.")
     analyser_arêtes(g)
 
+#############################################
+
+# Fonctions pour la réduction de dimension des features des noeuds des graphes (lorsque utile)
+
+#############################################
+
+
+def analyze_feature_redundancy(graph, variance_thresh=1e-5, corr_thresh=0.95, pca_variance=0.95):
+    import numpy as np
+    import torch
+    import matplotlib.pyplot as plt
+    from sklearn.decomposition import PCA
+
+    # 1. Extraire les features
+    X = graph.ndata['feature'].numpy()
+
+    # 2. Calculer la variance
+    variances = X.var(axis=0)
+    var_idx = np.where(variances >= variance_thresh)[0]       # indices à garder
+    low_var_idx = np.where(variances < variance_thresh)[0]    # indices supprimés pour traçabilité
+    print(f"{len(low_var_idx)} features ont une variance < {variance_thresh} : {low_var_idx.tolist()} — elles sont supprimées avant la PCA")
+
+    # 3. Filtrer les colonnes à faible variance
+    X_clean = X[:, var_idx]
+
+    # 4. Mettre à jour les features du graphe
+    graph.ndata['feat'] = torch.tensor(X_clean, dtype=torch.float32)
+
+    # 5. Features très corrélées (calculé sur X d'origine, pas X_clean)
+    corr_matrix = np.corrcoef(X, rowvar=False)
+    np.fill_diagonal(corr_matrix, 0)
+    high_corr_pairs = np.where(np.abs(corr_matrix) > corr_thresh)
+    redundant_pairs = [(i, j) for i, j in zip(*high_corr_pairs) if i < j]
+    print(f"{len(redundant_pairs)} paires de features ont une corrélation > {corr_thresh} :")
+    for i, j in redundant_pairs[:10]:
+        print(f"  Feature {i} ↔ Feature {j} (corr = {corr_matrix[i, j]:.2f})")
+
+    # 6. PCA sur les features nettoyées
+    pca = PCA(n_components=pca_variance)
+    pca.fit(X_clean)
+    print(f"PCA a réduit de {X_clean.shape[1]} à {pca.n_components_} dimensions (variance expliquée : {pca_variance})")
+
+    # 7. Affichage des poids de la première composante
+    comp_weights = np.abs(pca.components_[0])
+    plt.bar(np.arange(len(comp_weights)), comp_weights)
+    plt.title("Poids absolus des features dans la 1re composante principale")
+    plt.xlabel("Feature index")
+    plt.ylabel("Poids")
+    plt.show()
+
+    return {
+        'features_supprimées_par_variance': low_var_idx.tolist(),
+        'paires_trop_corrélées': redundant_pairs,
+        'pca_model': pca
+    }
+
 
 # #### Etude des caractéristiques des datasets et création d'un dictionnaire pour pouvoir les manipuler séparément ensuite :
 
@@ -213,8 +272,9 @@ for dataset_name in datasets:
 
     graphs[dataset_name] = g  # Stockage du graphe avec son nom
 
-    describe_dgl_graph(g, dataset_name, 2)
+    # describe_dgl_graph(g, dataset_name, 2)
     
+graphs_modif = {}
 
 #############################################
 
@@ -225,9 +285,13 @@ for dataset_name in datasets:
 
 #############################################
 
-g_reddit = graphs['reddit']
+graphs_modif['reddit'] = dgl.to_simple(graphs['reddit'], aggregator=sum)
 
+describe_dgl_graph(graphs_modif['reddit'],'reddit')
 
+# RESTE A FAIRE LA REDUC DE DIMENSIONS SUR LES FEATURES DE REDDIT (X)
+
+resultats = analyze_feature_redundancy(graphs_modif['reddit'])
 
 
 #############################################
@@ -239,10 +303,11 @@ g_reddit = graphs['reddit']
 
 #############################################
 
-g_weibo = graphs['weibo']
+graphs_modif['weibo'] = graphs['weibo']
 
 
-
+for name, g in graphs_modif.items():
+    print(name, g.num_nodes(), g.num_edges())
 
 #############################################
 
@@ -422,5 +487,7 @@ for name, arr in [("x_reddit.npy", x_reddit), ("y_reddit.npy", y_reddit), ("A_re
         pickle.dump(nx_graph, f)
 
 '''
+
+
 
 
