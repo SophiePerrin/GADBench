@@ -289,14 +289,24 @@ def make_weighted_undirected_with_node_features(g):
     new_weights = []
 
     for (u, v), w in edge_counts.items():
-        # Ajouter A→B
+        # Attribution du poids basé sur le type de relation
+        if u == v:
+            weight = 1.0  # boucle
+        elif w == 1:
+            weight = 0.5  # unidirectionnel
+        else:
+            weight = 1.0  # bidirectionnel
+
+        # Arête u → v
         new_src.append(u)
         new_dst.append(v)
-        new_weights.append(w)
-        # Ajouter B→A (pour rendre la structure symétrique)
-        new_src.append(v)
-        new_dst.append(u)
-        new_weights.append(w)
+        new_weights.append(weight)
+
+        # Arête v → u (sauf si boucle)
+        if u != v:
+            new_src.append(v)
+            new_dst.append(u)
+            new_weights.append(weight)
 
     # 4. Créer le graphe non orienté
     g_undir = dgl.graph((new_src, new_dst), num_nodes=g.num_nodes())
