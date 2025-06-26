@@ -204,16 +204,12 @@ def describe_dgl_graph(g, name, max_examples=5):
 #############################################
 
 # Fonctions pour la réduction de dimension des features des noeuds des graphes (lorsque utile)
+# et pour transformer un graphe réellement orienté en graphe non orienté (par la méthode de repondération des arcs en arêtes)
 
 #############################################
 
 
 def analyze_feature_redundancy(graph, variance_thresh=1e-6, corr_thresh=0.95, pca_variance=0.95):
-    import numpy as np
-    import torch
-    import matplotlib.pyplot as plt
-    from sklearn.decomposition import PCA
-
     # 1. Extraire les features
     X = graph.ndata['feature'].numpy()
 
@@ -263,15 +259,63 @@ def analyze_feature_redundancy(graph, variance_thresh=1e-6, corr_thresh=0.95, pc
     plt.ylabel("Poids")
     plt.show()
 
-    # 8. Retourner les résultats
+    # 8. Remplacer les features du graphe par celles transformées par la PCA
+    X_pca = pca.transform(X_clean)
+    graph.ndata['feature'] = torch.tensor(X_pca, dtype=torch.float32)
+
+
+    # 9. Retourner les résultats
     return {
-        'features_supprimées_par_variance': low_var_idx.tolist(),  # ✅ inchangé
-        'top_corr_pairs': pair_scores[:10],                        # 🔄 remplacé l'ancien 'redundant_pairs'
-        'pca_model': pca
+        'features_supprimées_par_variance': low_var_idx.tolist(),  
+        'top_corr_pairs': pair_scores[:10],                   
+        'pca_model': pca,
+        'graph_pca': graph 
     }
 
 
+def make_weighted_undirected_with_node_features(g):
+    # 1. Extraire les arêtes orientées
+    src, dst = g.edges()
+
+    # 2. Compter les relations (non orientées)
+    edge_counts = {}
+    for u, v in zip(src.tolist(), dst.tolist()):
+        key = tuple(sorted([u, v]))
+        edge_counts[key] = edge_counts.get(key, 0) + 1
+
+    # 3. Préparer les arêtes et les poids
+    new_src = []
+    new_dst = []
+    new_weights = []
+
+    for (u, v), w in edge_counts.items():
+        # Ajouter A→B
+        new_src.append(u)
+        new_dst.append(v)
+        new_weights.append(w)
+        # Ajouter B→A (pour rendre la structure symétrique)
+        new_src.append(v)
+        new_dst.append(u)
+        new_weights.append(w)
+
+    # 4. Créer le graphe non orienté
+    g_undir = dgl.graph((new_src, new_dst), num_nodes=g.num_nodes())
+
+    # 5. Copier les features des nœuds
+    for key in g.ndata:
+        g_undir.ndata[key] = g.ndata[key].clone()
+
+    # 6. Ajouter les poids aux arêtes
+    g_undir.edata['count'] = torch.tensor(new_weights, dtype=torch.float)
+
+    return g_undir
+
+
+#############################################
+
 # #### Etude des caractéristiques des datasets et création d'un dictionnaire pour pouvoir les manipuler séparément ensuite :
+
+#############################################
 
 datasets = ['reddit', 'weibo']
 
@@ -285,7 +329,7 @@ for dataset_name in datasets:
 
     graphs[dataset_name] = g  # Stockage du graphe avec son nom
 
-    # describe_dgl_graph(g, dataset_name, 2)
+    describe_dgl_graph(g, dataset_name, 2)
     
 graphs_modif = {}
 
@@ -300,24 +344,21 @@ graphs_modif = {}
 
 graphs_modif['reddit'] = dgl.to_simple(graphs['reddit'], aggregator=sum)
 
-describe_dgl_graph(graphs_modif['reddit'],'reddit')
+# describe_dgl_graph(graphs_modif['reddit'],'reddit')
 
-# RESTE A FAIRE LA REDUC DE DIMENSIONS SUR LES FEATURES DE REDDIT (X)
+resultats_reddit = analyze_feature_redundancy(graphs_modif['reddit'])
 
-resultats = analyze_feature_redundancy(graphs_modif['reddit'])
-
-
+graphs_modif['reddit'] = resultats_reddit['graph_pca']
 #############################################
 
 # Travail de transformation - adaptation du graphe de données weibo
 
-# 
-
-
 #############################################
 
-graphs_modif['weibo'] = graphs['weibo']
+graphs_modif['weibo'] = make_weighted_undirected_with_node_features(graphs['weibo'])
 
+
+describe_dgl_graph(graphs_modif['weibo'], 'weibo_modif')
 
 for name, g in graphs_modif.items():
     print(name, g.num_nodes(), g.num_edges())
@@ -500,3 +541,5 @@ for name, arr in [("x_reddit.npy", x_reddit), ("y_reddit.npy", y_reddit), ("A_re
         pickle.dump(nx_graph, f)
 
 '''
+
+
