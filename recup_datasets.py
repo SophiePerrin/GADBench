@@ -367,8 +367,13 @@ graphs_modif['reddit'] = resultats_reddit['graph_pca']
 
 graphs_modif['weibo'] = make_weighted_undirected_with_node_features(graphs['weibo'])
 
+# Cette modif n'est pas au point : elle donne des poids ramenés à 1 pour toutes les arêtes, semble t il : 
+
+# graphs_modif['weibo'] = dgl.to_simple(graphs_modif['weibo']) # par défaut, aggregator = arbitrary
 
 describe_dgl_graph(graphs_modif['weibo'], 'weibo_modif')
+
+# Il reste aussi à faire tourner PCA sur ce graphe, pour voir si ça apporterait quelque chose ou non.
 
 for name, g in graphs_modif.items():
     print(name, g.num_nodes(), g.num_edges())
