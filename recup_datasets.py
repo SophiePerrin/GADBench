@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 #############################################
 
 
-def analyser_arêtes(g, poids_key='count'):
+def analyser_arêtes(g, poids_key='count'): # fonction utilisée tout à la fin de la fonction describe_dgl_graph()
     src, dst = g.edges()
     weights = g.edata[poids_key]
 
@@ -96,52 +96,12 @@ def describe_dgl_graph(g, name, max_examples=5):
     src, dst = g.edges()
     for i in range(min(max_examples, len(src))):
         print(f"   {src[i].item()} → {dst[i].item()}")
-    '''
-    print(g.etypes)
-    for etype in g.canonical_etypes:
-        print(f"{etype} features:", g.edges[etype].data.keys())
-    print(g.edges[('_N', '_E', '_N')].data['count'])
-    for etype in g.canonical_etypes:
-        for key in g.edges[etype].data.keys():
-            print(f"{etype} - {key}:")
-            print(g.edges[etype].data[key])
-
-    src, dst = g.edges(form='uv', etype=('_N', '_E', '_N'))
-    counts = g.edges[('_N', '_E', '_N')].data['count']
-
-    for i, (u, v, c) in enumerate(zip(src, dst, counts)):
-        if i >= 100:
-            break
-        print(f"{u.item()} -> {v.item()} : count = {c.item()}")
-    '''
-    '''
-    # 1. Récupérer les arêtes et la feature 'count'
-    src, dst = g.edges(form='uv', etype=('_N', '_E', '_N'))
-    counts = g.edges[('_N', '_E', '_N')].data['count']          # (num_edges, 1) ou (num_edges,)
-
-# 2. Construire un masque booléen : True si count > 1
-    mask = (counts.squeeze() > 1)   # .squeeze() enlève la dimension inutile si besoin
-
-# 3. Appliquer le masque pour ne garder que les arêtes voulues
-    src_keep = src[mask]
-    dst_keep = dst[mask]
-    count_keep = counts[mask]
-
-# 4. Afficher les arêtes filtrées
-    for u, v, c in zip(src_keep, dst_keep, count_keep):
-        print(f"{u.item()} -> {v.item()} : count = {c.item()}")
-    
-    for ntype in g.ntypes:
-        print(f"Attributs des nœuds de type {ntype} :")
-        print(list(g.nodes[ntype].data.keys()))
-
-    '''
 
     print(f"Le graphe est-il homogène ? {g.is_homogeneous}")
     print(f"Le graphe est-il unibipartite ? {g.is_unibipartite}")
     print(f"Résultats de has nodes : {g.has_nodes}")
 
-# Autre méthode pour matrice d'adjacence
+# Matrice d'adjacence
     # Construire la matrice sparse pondérée
     # Si src et dst sont des numpy arrays, on les convertit en torch tensors
     src_tensor = torch.tensor(src) if not torch.is_tensor(src) else src
@@ -159,7 +119,7 @@ def describe_dgl_graph(g, name, max_examples=5):
     )
 
 # adj contient les poids des arêtes
-    print(f"matrice d'adjacence autre méthode de calcul : {adj.to_dense()}")  # Affiche la matrice dense
+    print(f"matrice d'adjacence : {adj.to_dense()}")  # Affiche la matrice dense
     # Si adj est sparse
     dense_adj = adj.to_dense()
 
@@ -192,7 +152,7 @@ def describe_dgl_graph(g, name, max_examples=5):
     edge_set = set(zip(src.tolist(), dst.tolist()))
     reverse_set = set((j, i) for (i, j) in edge_set if i != j)
 
-# Arêtes qui n'ont pas leur inverse
+    # Arêtes qui n'ont pas leur inverse
     asym_edges = reverse_set - edge_set
     print(len(asym_edges))
     if len(asym_edges) == 0:
@@ -341,15 +301,15 @@ for dataset_name in datasets:
 
     describe_dgl_graph(g, dataset_name, 2)
     
-graphs_modif = {}
+graphs_modif = {} # Dictionnaire pour stocker les graphes après les modifications faites ci-dessous
 
 #############################################
 
 # Travail de transformation - adaptation du graphe de données reddit
 
-# Ce graphe est symétrique, et chaque arête a une arête inverse. Dans DGL, tous les graphes sont de type orienté (il est impossible qu'ils ne l'y soient pas).
-# C'est du à la spécificité de DGL : faire des graphes pour y faire tourner des GNN
-# Notre graphe, étant symétrique, est donc déjà sous la bonne forme en pratique (il n'est orienté que parce que DGL lui attribue ce type)
+# Ce graphe est symétrique, et chaque arc a un arc inverse. Dans DGL, tous les graphes sont de type orienté (il est impossible qu'ils ne l'y soient pas).
+# C'est du à la spécificité de DGL : faire des graphes pour y faire tourner des GNN.
+# Notre graphe, étant symétrique, est donc déjà sous la bonne forme en pratique (il n'est orienté que parce que DGL lui attribue ce type).
 
 # On a donc uniquement à se préoccuper des features des noeuds, en éliminant celles qui varient très faiblement entre les différents noeuds,
 # puis en effectuant une ACP pour transformer nos features parfois très corrélées entre elles, en features orthogonales les unes aux autres, et moins nombreuses
@@ -361,6 +321,7 @@ resultats_reddit = analyze_feature_redundancy(graphs['reddit'])
 graphs_modif['reddit'] = resultats_reddit['graph_pca']
 
 describe_dgl_graph(graphs_modif['reddit'], 'reddit_modif')
+
 #############################################
 
 # Travail de transformation - adaptation du graphe de données weibo
@@ -375,11 +336,11 @@ describe_dgl_graph(graphs_modif['reddit'], 'reddit_modif')
 
 graphs_modif['weibo'] = make_weighted_undirected_with_node_features(graphs['weibo'])
 
-describe_dgl_graph(graphs_modif['weibo'], 'weibo_modif')
-
-resultats_weibo = analyze_feature_redundancy(graphs['weibo'], variance_thresh=1e-2, corr_thresh=0.95, pca_variance=0.99)
+resultats_weibo = analyze_feature_redundancy(graphs_modif['weibo'], variance_thresh=1e-2, corr_thresh=0.95, pca_variance=0.99)
 
 graphs_modif['weibo'] = resultats_weibo['graph_pca']
+
+describe_dgl_graph(graphs_modif['weibo'], 'weibo_modif')
 
 #############################################
 for name, g in graphs_modif.items():
@@ -460,108 +421,3 @@ for dataset_name in datasets:
             print(f"  ✔ Uploaded {name}")
 
 '''
-
-
-'''
-    # 1. Reconstruire le masque users/items
-# Ici j'utilise le fait que seuls les users ont un label >= 0.
-    labels = g.ndata['label']               # shape [10984]
-    is_user = labels >= 0                   # True = user, False = item
-    is_item = ~is_user
-
-# 2. Comptage des nœuds de chaque type
-    num_users = is_user.sum().item()
-    num_items = is_item.sum().item()
-    print(f"Users détectés : {num_users}")
-    print(f"Items détectés : {num_items}")
-
-# 3. Récupérer toutes les arêtes
-    src, dst = g.edges()
-
-# 4. Compter les 4 cas de figure
-    mask_ui = is_user[src] & is_item[dst]    # user → item
-    mask_iu = is_item[src] & is_user[dst]    # item → user
-    mask_uu = is_user[src] & is_user[dst]    # user → user
-    mask_ii = is_item[src] & is_item[dst]    # item → item
-
-    counts = {
-        "user→item" : mask_ui.sum().item(),
-        "item→user" : mask_iu.sum().item(),
-        "user→user" : mask_uu.sum().item(),
-        "item→item" : mask_ii.sum().item(),
-        "total edges": src.shape[0]
-    }
-
-    for k, v in counts.items():
-        print(f"{k:10s} : {v}")
-
-# 5. Pourcentage user→item
-    pct_ui = counts["user→item"] / counts["total edges"] * 100
-    print(f"\n% user→item  : {pct_ui:.2f}%")
-'''
-'''
-import os
-import s3fs
-import numpy as np
-
-#BUCKET_OUT = "sophieperrinlyon2"
-
-
-BUCKET = "sophieperrinlyon2"
-PREFIX = "albert/"
-
-fs = s3fs.S3FileSystem()
-
-x_reddit = np.load("x_reddit.npy")
-y_reddit = np.load("y_reddit.npy")
-A_reddit = np.load("A_reddit.npy")
-
-
-for name, arr in [("x_reddit.npy", x_reddit), ("y_reddit.npy", y_reddit), ("A_reddit.npy", A_reddit)]:
-    path = f"{BUCKET}/{PREFIX}{name}"
-    with fs.open(path, "wb") as f:
-        np.save(f, arr)
-    print(f"  ✔ Uploaded {name}")
-'''
-'''
-    # ================================
-    # 4. Sauvegarde dans un fichier .npz compressé
-    # ================================
-    # Nettoyage du nom de fichier
-    graph_name = dataset_name.replace("/", "_")
-
-    # Enregistrement dans un fichier compressé contenant x, y, similarities
-    np.savez_compressed(
-        os.path.join(output_dir, f"{graph_name}.npz"),
-        x=x,
-        y=y,
-        A=A
-    )
-
-'''
-
-'''  
-    # sauvegarder les features ou graphes
-    X = g.ndata['feature'].cpu().numpy()
-    np.save(f"{dataset_name}_features.npy", X)
-    # convertir en networkx
-    nx_graph = dgl.to_networkx(g)
-    with open(f"{dataset_name}.gpickle", "wb") as f:
-        pickle.dump(nx_graph, f)
-
-'''
-
-
-
-'''  
-    # sauvegarder les features ou graphes
-    X = g.ndata['feature'].cpu().numpy()
-    np.save(f"{dataset_name}_features.npy", X)
-    # convertir en networkx
-    nx_graph = dgl.to_networkx(g)
-    with open(f"{dataset_name}.gpickle", "wb") as f:
-        pickle.dump(nx_graph, f)
-
-'''
-
-
