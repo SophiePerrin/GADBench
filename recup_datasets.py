@@ -347,34 +347,41 @@ graphs_modif = {}
 
 # Travail de transformation - adaptation du graphe de données reddit
 
-# Ce graphe est symétrique, et chaque arête a une arête inverse : on va donc simplement le transformer en graphe non orienté, 
-# en récupérant comme poids d'arête non orientée la somme des arêtes aller et retour entre les deux noeuds concernés
+# Ce graphe est symétrique, et chaque arête a une arête inverse. Dans DGL, tous les graphes sont de type orienté (il est impossible qu'ils ne l'y soient pas).
+# C'est du à la spécificité de DGL : faire des graphes pour y faire tourner des GNN
+# Notre graphe, étant symétrique, est donc déjà sous la bonne forme en pratique (il n'est orienté que parce que DGL lui attribue ce type)
+
+# On a donc uniquement à se préoccuper des features des noeuds, en éliminant celles qui varient très faiblement entre les différents noeuds,
+# puis en effectuant une ACP pour transformer nos features parfois très corrélées entre elles, en features orthogonales les unes aux autres, et moins nombreuses
 
 #############################################
 
-graphs_modif['reddit'] = dgl.to_simple(graphs['reddit'], aggregator=sum)
-
-# describe_dgl_graph(graphs_modif['reddit'],'reddit')
-
-resultats_reddit = analyze_feature_redundancy(graphs_modif['reddit'])
+resultats_reddit = analyze_feature_redundancy(graphs['reddit'])
 
 graphs_modif['reddit'] = resultats_reddit['graph_pca']
+
+describe_dgl_graph(graphs_modif['reddit'], 'reddit_modif')
 #############################################
 
 # Travail de transformation - adaptation du graphe de données weibo
+
+# weibo est réellement orienté, car de nombreux arcs n'ont pas d'arc retour : on crée ces arcs retour
+# et on procède par repondération : 
+# 0 pour l'absence totale d'arc entre deux noeuds
+# 1 pour un arc A --> B et B --> A
+# 0,5 pour un arc uniquement A --> B (sans présence d'arc retour dans le graphe d'origine)
 
 #############################################
 
 graphs_modif['weibo'] = make_weighted_undirected_with_node_features(graphs['weibo'])
 
-# Cette modif n'est pas au point : elle donne des poids ramenés à 1 pour toutes les arêtes, semble t il : 
-
-# graphs_modif['weibo'] = dgl.to_simple(graphs_modif['weibo']) # par défaut, aggregator = arbitrary
-
 describe_dgl_graph(graphs_modif['weibo'], 'weibo_modif')
 
-# Il reste aussi à faire tourner PCA sur ce graphe, pour voir si ça apporterait quelque chose ou non.
+resultats_weibo = analyze_feature_redundancy(graphs['weibo'], variance_thresh=1e-2, corr_thresh=0.95, pca_variance=0.99)
 
+graphs_modif['weibo'] = resultats_weibo['graph_pca']
+
+#############################################
 for name, g in graphs_modif.items():
     print(name, g.num_nodes(), g.num_edges())
 
