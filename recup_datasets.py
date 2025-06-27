@@ -350,22 +350,22 @@ for name, g in graphs_modif.items():
 
 # Export des noeuds+features (x), des labels (y) et de la matrice de similarité (issue de A remaniée) des graphes de données
 
-# WARNING : SERA A ADAPTER AUX NOMS DES GRAPHES REMANIES
-
 #############################################
 
-'''
-datasets = ['reddit', 'weibo']
+
+# datasets = ['reddit', 'weibo']
 
 
 # Boucle sur tous les datasets
-for dataset_name in datasets:
+for dataset_name, g in graphs_modif.items():
+# for dataset_name in datasets:
+    '''
     # Chargement du dataset avec GADBench
     data = ut.Dataset(name=dataset_name, prefix='GADBench/datasets/')
     g = data.graph  # Récupération du graphe DGL
 
     describe_dgl_graph(g, dataset_name, 2)
-
+    '''
     # ================================
     # 1. Extraction des features des nœuds
     # ================================
@@ -380,7 +380,7 @@ for dataset_name in datasets:
         y = g.ndata['label'].cpu().numpy()
     else:
         # Sinon, on utilise -1 pour indiquer l'absence d'étiquette
-        y = np.full(g.num_nodes(), fill_value=-1)
+        y = np.full(g.num_nodes(), fill_value=-1)                       # EST CE QUE CE TRUC LA EST UNE PRATIQUE OK ???
 
     # ================================
     # 3. Création de la matrice de poids des arêtes
@@ -409,6 +409,22 @@ for dataset_name in datasets:
         # A[d, s] = w  # si le graphe est non orienté (symétrique)
     print(f"matrice d'adjacence : {A}")
 
+    # ================================
+    # 4. Création de la matrice de similarité des features des noeuds
+    # ================================
+
+    
+
+
+    # ================================
+    # 5. Création de la matrice similarities, qui combine poids des arêtes et similarités entre features des noeuds
+    # ================================
+
+
+    # ================================
+    # 6. Sauvegarde en S3 sur le cloud du datalab INSEE
+    # ================================
+
     BUCKET = "sophieperrinlyon2"
     PREFIX = "albert/"
 
@@ -419,5 +435,4 @@ for dataset_name in datasets:
         with fs.open(path, "wb") as f:
             np.save(f, arr)
             print(f"  ✔ Uploaded {name}")
-
-'''
+    print(dataset_name, g.num_nodes(), g.num_edges())
