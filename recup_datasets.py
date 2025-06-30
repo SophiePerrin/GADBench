@@ -1,4 +1,3 @@
-
 # import argparse
 import utils as ut
 import os
@@ -18,6 +17,9 @@ import torch
 import numpy as np
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
+from sklearn.cluster import SpectralClustering
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+
 
 #############################################
 
@@ -386,24 +388,55 @@ for name, g in graphs_modif.items():
 
 #############################################
 
-# Export des noeuds+features (x), des labels (y) et de la matrice de similarité (issue de A remaniée) des graphes de données
+# Export des noeuds+features (x), des labels (y), calcul de la matrice de similarité (issue de A remaniée) des graphes de données
+# pour le clustering spectral, et export de A pour utilisation par HypHC
 
 #############################################
 
+# fonctions utiles pour cette partie du programme
 
-# datasets = ['reddit', 'weibo']
+
+# Calcul de la similarité cosine entre features des noeuds par blocs (pour ne pas exploser la mémoire dispo)
+def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
+    N = X.shape[0]
+    X = X.astype(np.float32)
+    S = np.empty((N, N), dtype=np.float32)
+
+    for i in range(0, N, block_size):
+        Xi = X[i:min(i+block_size, N)]
+        for j in range(0, N, block_size):
+            Xj = X[j:min(j+block_size, N)]
+            S_block = np.dot(Xi, Xj.T)
+            S[i:i+Xi.shape[0], j:j+Xj.shape[0]] = S_block
+
+    S = 0.5 * (1.0 + S)
+    S = np.clip(S, 0.0, 1.0)
+    np.fill_diagonal(S, 1.0)
+    return S
+
+
+# fonction pour 
+def optimize_alpha_spectral(A, Scosine, y, alphas=np.linspace(0, 1, 11)):
+    n_clusters = len(np.unique(y[y != -1]))
+    results = []
+
+    for alpha in alphas:
+        S = alpha * A + (1 - alpha) * Scosine
+        model = SpectralClustering(n_clusters=n_clusters, affinity='precomputed', assign_labels='kmeans')
+        y_pred = model.fit_predict(S)
+        
+        mask = y != -1
+        ari = adjusted_rand_score(y[mask], y_pred[mask])
+        nmi = normalized_mutual_info_score(y[mask], y_pred[mask])
+        
+        print(f"[α={alpha:.2f}] ARI={ari:.3f} | NMI={nmi:.3f}")
+        results.append({'alpha': alpha, 'ARI': ari, 'NMI': nmi})
+
+    return results
 
 
 # Boucle sur tous les datasets
 for dataset_name, g in graphs_modif.items():
-# for dataset_name in datasets:
-    '''
-    # Chargement du dataset avec GADBench
-    data = ut.Dataset(name=dataset_name, prefix='GADBench/datasets/')
-    g = data.graph  # Récupération du graphe DGL
-
-    describe_dgl_graph(g, dataset_name, 2)
-    '''
     # ================================
     # 1. Extraction des features des nœuds
     # ================================
@@ -448,10 +481,11 @@ for dataset_name, g in graphs_modif.items():
     print(f"matrice d'adjacence : {A}")
 
     # ================================
-    # 4. Création de la matrice de similarité des features des noeuds
+    # 4. Création de la matrice Scosine de similarité des features des noeuds (pour le clustering spectral ici 
+    # - pour le clustering hyperbolique : ce sera fait dans HypHC)
     # ================================
 
-# j'ai x (numpy) la matrice des features des noeuds
+    # j'ai x (numpy) la matrice des features des noeuds
 
     print("Min global :", x.min())
     print("Max global :", x.max())
@@ -466,35 +500,18 @@ for dataset_name, g in graphs_modif.items():
     print("Nouvelle norme moyenne :", norms.mean())
     print("Nouvelle norme max :", norms.max())
 
-# Calcul de la similarité cosine entre features des noeuds par blocs (pour ne pas exploser la mémoire dispo)
-    def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
-        N = X.shape[0]
-        X = X.astype(np.float32)
-        S = np.empty((N, N), dtype=np.float32)
-
-        for i in range(0, N, block_size):
-            Xi = X[i:min(i+block_size, N)]
-            for j in range(0, N, block_size):
-                Xj = X[j:min(j+block_size, N)]
-                S_block = np.dot(Xi, Xj.T)
-                S[i:i+Xi.shape[0], j:j+Xj.shape[0]] = S_block
-
-        S = 0.5 * (1.0 + S)
-        S = np.clip(S, 0.0, 1.0)
-        np.fill_diagonal(S, 1.0)
-        return S
-
+    # Calcul de la similarité cosine entre features des noeuds par blocs (pour ne pas exploser la mémoire dispo)
     Scosine = compute_cosine_similarity_matrix_blockwise(x, block_size=1000)
 
-
     # ================================
-    # 5. Création de la matrice similarities, qui combine poids des arêtes et similarités entre features des noeuds
+    # 5. Création de la matrice similarities, qui combine poids des arêtes et similarités entre features des noeuds,
+    # avec un hyperparamètre alpha à optimiser.
+    # On le fait ici uniquement pour le clustering spectral (pour le clustering hyperbolique, on va juste exporter A,
+    # et on construira similarities dans HypHC directement)
     # ================================
 
-    alpha = 0.5  # pour commencer
+    similarities = optimize_alpha_spectral(A, Scosine, y)
 
-    similarities = alpha*A + (1 - alpha)*Scosine
-    print(similarities)
     # ================================
     # 6. Sauvegarde en S3 sur le cloud du datalab INSEE
     # ================================
@@ -504,7 +521,7 @@ for dataset_name, g in graphs_modif.items():
 
     fs = s3fs.S3FileSystem()
 
-    for name, arr in [(f"x_{dataset_name}.npy", x), (f"y_{dataset_name}.npy", y), (f"similarities_{dataset_name}.npy", similarities)]:
+    for name, arr in [(f"x_{dataset_name}.npy", x), (f"y_{dataset_name}.npy", y), (f"A_{dataset_name}.npy", A)]:
         path = f"{BUCKET}/{PREFIX}{name}"
         with fs.open(path, "wb") as f:
             np.save(f, arr)
