@@ -173,6 +173,36 @@ def analyze_feature_redundancy(graph, variance_thresh=1e-6, corr_thresh=0.95, pc
     # 1. Extraire les features
     X = graph.ndata['feature'].numpy()
 
+    # 1. vérifier leurs caractéristiques
+    print("Min global :", X.min())
+    print("Max global :", X.max())
+    
+    norms = np.linalg.norm(X, axis=1)
+    print("Norme moyenne :", norms.mean())
+    print("Norme max :", norms.max())
+    print("Ecart-type :", X.std(axis=0))
+
+    means = X.mean(axis=0)
+    stds = X.std(axis=0)
+
+    print("Moyenne min (= 0 si déjà centrée réduite):", means.min())
+    print("Moyenne max (= 0 si déjà centrée réduite):", means.max())
+    print("Écart-type min (= 1 si déjà centrée réduite) :", stds.min())
+    print("Écart-type max (= 1 si déjà centrée réduite) :", stds.max())
+
+
+    # Résultat : ni reddit ni weibo ne sont centrés réduits, alors qu'ils doivent l'être pour effectuer la PCA
+
+    X = (X - X.mean(axis=0)) / (X.std(axis=0) + 1e-8)
+
+    means = X.mean(axis=0)
+    stds = X.std(axis=0)
+
+    print("Moyenne min vérif (= 0 si centrée réduite):", means.min())
+    print("Moyenne max vérif (= 0 si centrée réduite):", means.max())
+    print("Écart-type min vérif (= 1 si centrée réduite) :", stds.min())
+    print("Écart-type max vérif (= 1 si centrée réduite) :", stds.max())
+
     # 2. Calculer la variance
     variances = X.var(axis=0)
     var_idx = np.where(variances >= variance_thresh)[0]       # indices à garder
@@ -208,8 +238,16 @@ def analyze_feature_redundancy(graph, variance_thresh=1e-6, corr_thresh=0.95, pc
 
     # 6. PCA sur les features nettoyées
     pca = PCA(n_components=pca_variance)
-    pca.fit(X_clean)
+    X_pca = pca.fit_transform(X_clean)
     print(f"PCA a réduit de {X_clean.shape[1]} à {pca.n_components_} dimensions (variance expliquée : {pca_variance})")
+
+    means = X_pca.mean(axis=0)
+    stds = X_pca.std(axis=0)
+
+    print("Moyenne min vérif (= 0 si centrée réduite):", means.min())
+    print("Moyenne max vérif (= 0 si centrée réduite):", means.max())
+    print("Écart-type min vérif (= 1 si centrée réduite) :", stds.min())
+    print("Écart-type max vérif (= 1 si centrée réduite) :", stds.max())
 
     # 7. Affichage des poids de la première composante
     comp_weights = np.abs(pca.components_[0])
@@ -316,7 +354,7 @@ graphs_modif = {} # Dictionnaire pour stocker les graphes après les modificatio
 
 #############################################
 
-resultats_reddit = analyze_feature_redundancy(graphs['reddit'])
+resultats_reddit = analyze_feature_redundancy(graphs['reddit'], pca_variance=0.95)
 
 graphs_modif['reddit'] = resultats_reddit['graph_pca']
 
@@ -413,14 +451,50 @@ for dataset_name, g in graphs_modif.items():
     # 4. Création de la matrice de similarité des features des noeuds
     # ================================
 
+# j'ai x (numpy) la matrice des features des noeuds
+
+    print("Min global :", x.min())
+    print("Max global :", x.max())
     
+    norms = np.linalg.norm(x, axis=1)
+    print("Norme moyenne :", norms.mean())
+    print("Norme max :", norms.max())
+
+    x = x / np.clip(np.linalg.norm(x, axis=1, keepdims=True), 1e-8, None)
+
+    norms = np.linalg.norm(x, axis=1)
+    print("Nouvelle norme moyenne :", norms.mean())
+    print("Nouvelle norme max :", norms.max())
+
+# Calcul de la similarité cosine entre features des noeuds par blocs (pour ne pas exploser la mémoire dispo)
+    def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
+        N = X.shape[0]
+        X = X.astype(np.float32)
+        S = np.empty((N, N), dtype=np.float32)
+
+        for i in range(0, N, block_size):
+            Xi = X[i:min(i+block_size, N)]
+            for j in range(0, N, block_size):
+                Xj = X[j:min(j+block_size, N)]
+                S_block = np.dot(Xi, Xj.T)
+                S[i:i+Xi.shape[0], j:j+Xj.shape[0]] = S_block
+
+        S = 0.5 * (1.0 + S)
+        S = np.clip(S, 0.0, 1.0)
+        np.fill_diagonal(S, 1.0)
+        return S
+
+    Scosine = compute_cosine_similarity_matrix_blockwise(x, block_size=1000)
 
 
     # ================================
     # 5. Création de la matrice similarities, qui combine poids des arêtes et similarités entre features des noeuds
     # ================================
 
+    alpha = 0.5  # pour commencer
 
+    similarities = alpha*A + (1 - alpha)*Scosine
+    print(similarities)
     # ================================
     # 6. Sauvegarde en S3 sur le cloud du datalab INSEE
     # ================================
@@ -430,9 +504,10 @@ for dataset_name, g in graphs_modif.items():
 
     fs = s3fs.S3FileSystem()
 
-    for name, arr in [(f"x_{dataset_name}.npy", x), (f"y_{dataset_name}.npy", y), (f"A_{dataset_name}.npy", A)]:
+    for name, arr in [(f"x_{dataset_name}.npy", x), (f"y_{dataset_name}.npy", y), (f"similarities_{dataset_name}.npy", similarities)]:
         path = f"{BUCKET}/{PREFIX}{name}"
         with fs.open(path, "wb") as f:
             np.save(f, arr)
             print(f"  ✔ Uploaded {name}")
     print(dataset_name, g.num_nodes(), g.num_edges())
+
