@@ -12,10 +12,11 @@ from torch import sparse
 import numpy as np
 warnings.filterwarnings("ignore")
 seed_list = list(range(3407, 10000, 10))
-
 import torch
 import numpy as np
 from sklearn.decomposition import PCA
+import matplotlib
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 from sklearn.cluster import SpectralClustering
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
@@ -28,7 +29,7 @@ from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 #############################################
 
 
-def analyser_arêtes(g, poids_key='count'): # fonction utilisée tout à la fin de la fonction describe_dgl_graph()
+def analyser_aretes(g, poids_key='count'): # fonction utilisée tout à la fin de la fonction describe_dgl_graph()
     src, dst = g.edges()
     weights = g.edata[poids_key]
 
@@ -161,7 +162,7 @@ def describe_dgl_graph(g, name, max_examples=5):
         print("✅ Le graphe est symétrique : pour chaque arête i → j, il existe j → i.")
     else:
         print(f"⚠️ Le graphe est orienté : {len(asym_edges)} arêtes n’ont pas leur inverse.")
-    analyser_arêtes(g)
+    analyser_aretes(g)
 
 #############################################
 
@@ -400,6 +401,12 @@ for name, g in graphs_modif.items():
 def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
     N = X.shape[0]
     X = X.astype(np.float32)
+
+    # Normalisation des vecteurs ligne de X
+    norms = np.linalg.norm(X, axis=1, keepdims=True)
+    X = X / (norms + 1e-8)  # pour éviter la division par zéro
+
+    # Matrice de sortie
     S = np.empty((N, N), dtype=np.float32)
 
     for i in range(0, N, block_size):
@@ -409,30 +416,40 @@ def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
             S_block = np.dot(Xi, Xj.T)
             S[i:i+Xi.shape[0], j:j+Xj.shape[0]] = S_block
 
+    # transformation de la similarité cosine en une similarité comprise entre 0 et 1 
     S = 0.5 * (1.0 + S)
     S = np.clip(S, 0.0, 1.0)
+    # Diagonale à 1.0 (au cas où il y aurait un flottement numérique)
     np.fill_diagonal(S, 1.0)
     return S
 
 
-# fonction pour 
-def optimize_alpha_spectral(A, Scosine, y, alphas=np.linspace(0, 1, 11)):
+# fonction pour optimiser alpha dans le cadre d'un clustering spectral
+def optimize_alpha_spectral(A, Scosine, y, alphas=np.linspace(0, 1, 11), metric='ARI'):
+    assert metric in ['ARI', 'NMI'], "metric doit être 'ARI' ou 'NMI'"
     n_clusters = len(np.unique(y[y != -1]))
     results = []
+    best_result = None
 
     for alpha in alphas:
         S = alpha * A + (1 - alpha) * Scosine
         model = SpectralClustering(n_clusters=n_clusters, affinity='precomputed', assign_labels='kmeans')
         y_pred = model.fit_predict(S)
-        
+
         mask = y != -1
         ari = adjusted_rand_score(y[mask], y_pred[mask])
         nmi = normalized_mutual_info_score(y[mask], y_pred[mask])
-        
-        print(f"[α={alpha:.2f}] ARI={ari:.3f} | NMI={nmi:.3f}")
-        results.append({'alpha': alpha, 'ARI': ari, 'NMI': nmi})
 
-    return results
+        print(f"[α={alpha:.2f}] ARI={ari:.3f} | NMI={nmi:.3f}")
+        result = {'alpha': alpha, 'ARI': ari, 'NMI': nmi, 'y_pred': y_pred}
+        results.append(result)
+
+        if best_result is None or result[metric] > best_result[metric]:
+            best_result = result
+
+    print(f"\n✅ Meilleur alpha (selon {metric}) : {best_result['alpha']:.2f} → {metric} = {best_result[metric]:.3f}")
+
+    return results, best_result['alpha'], best_result[metric], best_result['y_pred']
 
 
 # Boucle sur tous les datasets
@@ -503,6 +520,8 @@ for dataset_name, g in graphs_modif.items():
     # Calcul de la similarité cosine entre features des noeuds par blocs (pour ne pas exploser la mémoire dispo)
     Scosine = compute_cosine_similarity_matrix_blockwise(x, block_size=1000)
 
+    Scosine = np.exp(Scosine * 10)  # accentue les différences car sinon nos Scosine sont très "plates" (tout s'y ressemble !)
+
     # ================================
     # 5. Création de la matrice similarities, qui combine poids des arêtes et similarités entre features des noeuds,
     # avec un hyperparamètre alpha à optimiser.
@@ -511,6 +530,30 @@ for dataset_name, g in graphs_modif.items():
     # ================================
 
     similarities = optimize_alpha_spectral(A, Scosine, y)
+
+    ###################################
+
+    # visualisation de A et Scosine
+
+    ##################################
+
+    def plot_similarity_matrices(A, Scosine, filename="matrices_similarite.png"):
+        plt.figure(figsize=(10, 4))
+
+        plt.subplot(1, 2, 1)
+        plt.imshow(A, cmap='viridis')
+        plt.title("A")
+
+        plt.subplot(1, 2, 2)
+        plt.imshow(Scosine, cmap='viridis')
+        plt.title("Scosine")
+
+        plt.tight_layout()
+        plt.savefig(filename)
+        plt.close()  # ferme proprement la figure pour éviter les fuites mémoire
+
+    plot_similarity_matrices(A, Scosine, f"matrices_{dataset_name}.png")
+
 
     # ================================
     # 6. Sauvegarde en S3 sur le cloud du datalab INSEE
