@@ -3,9 +3,12 @@ import time
 from utils import *
 import pandas
 import os
+import s3fs         # ###
+import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
 seed_list = list(range(3407, 10000, 10))
+
 
 def set_seed(seed=3407):
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -16,6 +19,37 @@ def set_seed(seed=3407):
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
+
+
+def load_data_s3(name, dataset_name):               # ###
+    local_path = f"/tmp/{name}_{dataset_name}.npy"
+
+    if os.path.exists(local_path):
+        return np.load(local_path)
+
+    # Paramètres S3
+    S3_ENDPOINT_URL = "https://" + os.environ["AWS_S3_ENDPOINT"]
+
+    # Initialiser le système de fichiers S3
+    fs = s3fs.S3FileSystem(client_kwargs={'endpoint_url': S3_ENDPOINT_URL})
+
+    # Spécifier le chemin dans le bucket
+    BUCKET = "sophieperrinlyon2"
+    FILE_KEY_S3 = f"albert/{name}_{dataset_name}.npy"  # Remplace par le chemin correct
+    FILE_PATH_S3 = BUCKET + "/" + FILE_KEY_S3
+
+    # Charger le fichier .npy depuis S3
+    with fs.open(FILE_PATH_S3, mode="rb") as f:
+        array = np.load(f)
+
+    # Vérification (optionnelle)
+    print(array.shape)
+    print(array.dtype)
+
+    # Sauvegarde en local pour la prochaine fois
+    # np.save(local_path, array)
+
+    return array                                    # ###
 
 
 parser = argparse.ArgumentParser()
@@ -66,13 +100,9 @@ for model in models:
         }
         data = Dataset(dataset_name)
 
-        # Hypothèse : les embeddings sont dans un fichier .npy # ###
-        t2_path = f"embeddings/{dataset_name}_hyperbolic.npy"
-        if os.path.exists(t2_path):
-            t2 = np.load(t2_path)
-        else:
-            raise FileNotFoundError(f"Embeddings non trouvés pour {dataset_name} dans {t2_path}") # ###
-
+        # Hypothèse : les embeddings sont dans un fichier .npy                          # ###
+        t2 = load_data_s3("leaves_emb", dataset_name)
+        
         model_config = {'model': model, 'lr': 0.01, 'drop_rate': 0}
         if dataset_name == 'tsocial':
             model_config['h_feats'] = 16
