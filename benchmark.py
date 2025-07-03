@@ -65,6 +65,14 @@ for model in models:
             'inductive': bool(args.inductive)
         }
         data = Dataset(dataset_name)
+
+        # Hypothèse : les embeddings sont dans un fichier .npy # ###
+        t2_path = f"embeddings/{dataset_name}_hyperbolic.npy"
+        if os.path.exists(t2_path):
+            t2 = np.load(t2_path)
+        else:
+            raise FileNotFoundError(f"Embeddings non trouvés pour {dataset_name} dans {t2_path}") # ###
+
         model_config = {'model': model, 'lr': 0.01, 'drop_rate': 0}
         if dataset_name == 'tsocial':
             model_config['h_feats'] = 16
