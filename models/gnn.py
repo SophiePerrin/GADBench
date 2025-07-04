@@ -165,7 +165,7 @@ class BWGNN(nn.Module):
         self.concat_dim = h_feats + self.cluster_dim
         self.mlp_input_dim = self.concat_dim * len(self.conv)   # ###
 
-        self.mlp = MLP(self.mlp_input_dim * len(self.conv), h_feats, num_classes, mlp_layers, dropout_rate) # ###
+        self.mlp = MLP(self.mlp_input_dim, h_feats, num_classes, mlp_layers, dropout_rate) # ###
         
         # self.mlp = MLP(h0.shape[1]*len(self.conv), h_feats, num_classes, mlp_layers, dropout_rate)
         self.act = getattr(nn, activation)()
@@ -179,7 +179,9 @@ class BWGNN(nn.Module):
         h = self.act(h)
 
         # Conversion de clusters en tenseur, avec type et device cohérents # ###
-        clusters = torch.from_numpy(clusters).to(h.device).to(h.dtype)
+        if isinstance(clusters, np.ndarray):
+            clusters = torch.from_numpy(clusters)
+        clusters = clusters.to(h.device).to(h.dtype)
 
         # Vérification de la compatibilité (même nombre de nœuds)
         assert clusters.shape[0] == h.shape[0], "Dimension 0 de clusters doit correspondre au nombre de nœuds"
