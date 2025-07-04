@@ -58,6 +58,8 @@ parser.add_argument('--semi_supervised', type=int, default=0)
 parser.add_argument('--inductive', type=int, default=0)
 parser.add_argument('--models', type=str, default=None)
 parser.add_argument('--datasets', type=str, default=None)
+parser.add_argument('--use_clusters', action='store_true', help='Utiliser les embeddings hyperboliques en entrée du modèle')
+
 args = parser.parse_args()
 
 columns = ['name']
@@ -100,11 +102,20 @@ for model in models:
         }
         data = Dataset(dataset_name)
 
-        # Hypothèse : les embeddings sont dans un fichier .npy                          # ###
-        clusters = load_data_s3("leaves_emb", dataset_name)
-        data.clusters = clusters
+        # les embeddings sont dans un fichier .npy                          # ###
+
+        if args.use_clusters:
+            clusters = load_data_s3("leaves_emb", dataset_name)
+            data.clusters = clusters
+            cluster_dim = clusters.shape[1]
+        else:
+            data.clusters = None
+            cluster_dim = 0
+
+        # clusters = load_data_s3("leaves_emb", dataset_name)
+        # data.clusters = clusters
         
-        model_config = {'model': model, 'lr': 0.01, 'drop_rate': 0}
+        model_config = {'model': model, 'lr': 0.01, 'drop_rate': 0, 'cluster_dim': cluster_dim}. # ###
         if dataset_name == 'tsocial':
             model_config['h_feats'] = 16
             # if model in ['GHRN', 'KNNGCN', 'AMNet', 'GT', 'GAT', 'GATv2', 'GATSep', 'PNA']:   # require more than 24G GPU memory

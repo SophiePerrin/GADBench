@@ -178,10 +178,15 @@ class BWGNN(nn.Module):
         h = self.linear2(h)
         h = self.act(h)
 
+        # Gestion de clusters : tenseur ou None
+        if clusters is None:
+            clusters = torch.zeros((h.shape[0], self.cluster_dim), device=h.device, dtype=h.dtype)
+        else:
         # Conversion de clusters en tenseur, avec type et device cohérents # ###
-        if isinstance(clusters, np.ndarray):
-            clusters = torch.from_numpy(clusters)
+            if isinstance(clusters, np.ndarray):
+                clusters = torch.from_numpy(clusters)
         clusters = clusters.to(h.device).to(h.dtype)
+
 
         # Vérification de la compatibilité (même nombre de nœuds)
         assert clusters.shape[0] == h.shape[0], "Dimension 0 de clusters doit correspondre au nombre de nœuds"
