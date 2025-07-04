@@ -60,7 +60,10 @@ class BaseGNNDetector(BaseDetector):
         super().__init__(train_config, model_config, data)
         gnn = globals()[model_config['model']]
         model_config['in_feats'] = self.data.graph.ndata['feature'].shape[1]
-        model_config['cluster_dim'] = self.data.clusters.shape[1]           # ###
+        if self.data.clusters is not None:                              # ###
+            model_config['cluster_dim'] = self.data.clusters.shape[1]
+        else:
+            model_config['cluster_dim'] = 0                             # ###
 
         self.model = gnn(**model_config).to(train_config['device'])
         self.clusters = self.data.clusters                                # ###

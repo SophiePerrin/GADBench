@@ -115,11 +115,10 @@ for model in models:
         # clusters = load_data_s3("leaves_emb", dataset_name)
         # data.clusters = clusters
         
-        model_config = {'model': model, 'lr': 0.01, 'drop_rate': 0, 'cluster_dim': cluster_dim}. # ###
-        if dataset_name == 'tsocial':
-            model_config['h_feats'] = 16
-            # if model in ['GHRN', 'KNNGCN', 'AMNet', 'GT', 'GAT', 'GATv2', 'GATSep', 'PNA']:   # require more than 24G GPU memory
-                # continue
+        model_config = {'model': model, 'lr': 0.01, 'drop_rate': 0, 'cluster_dim': cluster_dim}
+        model_config['h_feats'] = 16
+        # if model in ['GHRN', 'KNNGCN', 'AMNet', 'GT', 'GAT', 'GATv2', 'GATSep', 'PNA']:   # require more than 24G GPU memory
+        # continue
 
         auc_list, pre_list, rec_list = [], [], []
         for t in range(args.trials):
