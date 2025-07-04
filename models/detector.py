@@ -61,13 +61,15 @@ class BaseGNNDetector(BaseDetector):
         gnn = globals()[model_config['model']]
         model_config['in_feats'] = self.data.graph.ndata['feature'].shape[1]
         self.model = gnn(**model_config).to(train_config['device'])
+        self.clusters = self.data.clusters                                # ###
+
 
     def train(self):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_config['lr'])
         train_labels, val_labels, test_labels = self.labels[self.train_mask], self.labels[self.val_mask], self.labels[self.test_mask]
         for e in range(self.train_config['epochs']):
             self.model.train()
-            logits = self.model(self.train_graph)
+            logits = self.model(self.train_graph, self.clusters)             # ###
             loss = F.cross_entropy(logits[self.train_graph.ndata['train_mask']], train_labels,
                                    weight=torch.tensor([1., self.weight], device=self.labels.device))
             optimizer.zero_grad()
