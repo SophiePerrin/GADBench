@@ -160,7 +160,14 @@ class BWGNN(nn.Module):
             self.conv.append(PolyConv(self.thetas[i]))
         self.linear = nn.Linear(in_feats, h_feats)
         self.linear2 = nn.Linear(h_feats, h_feats)
-        self.mlp = MLP(h_feats*len(self.conv), h_feats, num_classes, mlp_layers, dropout_rate)
+
+        self.cluster_dim = kwargs.get("cluster_dim", 0)         # ###
+        self.concat_dim = h_feats + self.cluster_dim
+        self.mlp_input_dim = self.concat_dim * len(self.conv)   # ###
+
+        self.mlp = MLP(self.mlp_input_dim * len(self.conv), h_feats, num_classes, mlp_layers, dropout_rate) # ###
+        
+        # self.mlp = MLP(h0.shape[1]*len(self.conv), h_feats, num_classes, mlp_layers, dropout_rate)
         self.act = getattr(nn, activation)()
         self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity()
 
