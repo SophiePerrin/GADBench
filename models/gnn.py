@@ -164,21 +164,21 @@ class BWGNN(nn.Module):
         self.act = getattr(nn, activation)()
         self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity()
 
-    def forward(self, graph, t2):       # ###
+    def forward(self, graph, clusters):       # ###
         in_feat = graph.ndata['feature']
         h = self.linear(in_feat)
         h = self.act(h)
         h = self.linear2(h)
         h = self.act(h)
 
-        # Conversion de t2 en tenseur, avec type et device cohérents # ###
-        t2 = torch.from_numpy(t2).to(h.device).to(h.dtype)
+        # Conversion de clusters en tenseur, avec type et device cohérents # ###
+        clusters = torch.from_numpy(clusters).to(h.device).to(h.dtype)
 
         # Vérification de la compatibilité (même nombre de nœuds)
-        assert t2.shape[0] == h.shape[0], "Dimension 0 de t2 doit correspondre au nombre de nœuds"
+        assert clusters.shape[0] == h.shape[0], "Dimension 0 de clusters doit correspondre au nombre de nœuds"
 
         # Concaténation des features classiques et hyperboliques
-        h = torch.cat((h, t2), dim=1)                               # ###
+        h = torch.cat((h, clusters), dim=1)                               # ###
 
         h_final = torch.zeros([len(in_feat), 0], device=h.device)
 

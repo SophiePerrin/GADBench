@@ -101,7 +101,8 @@ for model in models:
         data = Dataset(dataset_name)
 
         # Hypothèse : les embeddings sont dans un fichier .npy                          # ###
-        t2 = load_data_s3("leaves_emb", dataset_name)
+        clusters = load_data_s3("leaves_emb", dataset_name)
+        data.clusters = clusters
         
         model_config = {'model': model, 'lr': 0.01, 'drop_rate': 0}
         if dataset_name == 'tsocial':
