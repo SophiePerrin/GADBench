@@ -15,12 +15,18 @@ seed_list = list(range(3407, 10000, 10))
 import torch
 import numpy as np
 from sklearn.decomposition import PCA
-import matplotlib
+import matplotlib 
 matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 from sklearn.cluster import SpectralClustering
-from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
+from sklearn.preprocessing import normalize
+from scipy.sparse.csgraph import laplacian
+from numpy.linalg import eigvalsh
+import matplotlib.pyplot as plt
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+
+from joblib import Parallel, delayed
 
 #############################################
 
@@ -423,8 +429,68 @@ def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
     np.fill_diagonal(S, 1.0)
     return S
 
+# Fonction proposée par chat GPT pour optimiser à la fois alpha et n_cluster dans le cas de clustering spectral non supervisé : 
+def grid_search_alpha_k(A, Scosine, 
+                        alphas=np.linspace(0, 1, 11), 
+                        k_range=range(2, 11), 
+                        metric='silhouette', 
+                        n_jobs=-1, verbose=False):
+    
+    from sklearn.cluster import SpectralClustering
+    from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+    from joblib import Parallel, delayed
+    import numpy as np
 
-# fonction pour optimiser alpha dans le cadre d'un clustering spectral
+    assert metric in ['silhouette', 'calinski', 'davies'], "metric doit être 'silhouette', 'calinski' ou 'davies'"
+    results = []
+    best_result = None
+
+    def evaluate(alpha, k):
+        S = alpha * A + (1 - alpha) * Scosine
+        try:
+            model = SpectralClustering(n_clusters=k, affinity='precomputed', assign_labels='kmeans')
+            y_pred = model.fit_predict(S)
+
+            if metric == 'silhouette':
+                score = silhouette_score(1 - S, y_pred, metric='precomputed')
+            elif metric == 'calinski':
+                score = calinski_harabasz_score(S, y_pred)
+            elif metric == 'davies':
+                score = -davies_bouldin_score(S, y_pred)  # on inverse car plus petit = meilleur
+
+            if verbose:
+                print(f"[α={alpha:.2f}, k={k}] {metric} = {score:.3f}")
+
+            return {'alpha': alpha, 'k': k, 'score': score, 'y_pred': y_pred, 'S': S}
+        
+        except Exception as e:
+            if verbose:
+                print(f"[α={alpha:.2f}, k={k}] Erreur : {e}")
+            return None
+
+    tasks = [(alpha, k) for alpha in alphas for k in k_range]
+
+    all_results = Parallel(n_jobs=n_jobs)(
+        delayed(evaluate)(alpha, k) for alpha, k in tasks
+    )
+    all_results = [r for r in all_results if r is not None]
+
+    best_result = max(all_results, key=lambda r: r['score'])
+
+    print(f"\n✅ Meilleur : alpha={best_result['alpha']:.2f}, k={best_result['k']}, score={best_result['score']:.3f}")
+
+    return (
+        all_results, 
+        best_result['alpha'], 
+        best_result['k'], 
+        best_result['score'], 
+        best_result['y_pred'], 
+        best_result['S']  # 👈 matrice S du meilleur alpha
+    )
+
+
+'''    
+# fonction pour optimiser alpha dans le cadre d'un clustering spectral supervisé
 def optimize_alpha_spectral(A, Scosine, y, alphas=np.linspace(0, 1, 11), metric='ARI'):
     assert metric in ['ARI', 'NMI'], "metric doit être 'ARI' ou 'NMI'"
     n_clusters = len(np.unique(y[y != -1]))
@@ -450,7 +516,7 @@ def optimize_alpha_spectral(A, Scosine, y, alphas=np.linspace(0, 1, 11), metric=
     print(f"\n✅ Meilleur alpha (selon {metric}) : {best_result['alpha']:.2f} → {metric} = {best_result[metric]:.3f}")
 
     return results, best_result['alpha'], best_result[metric], best_result['y_pred']
-
+'''
 
 # Boucle sur tous les datasets
 for dataset_name, g in graphs_modif.items():
@@ -528,8 +594,15 @@ for dataset_name, g in graphs_modif.items():
     # On le fait ici uniquement pour le clustering spectral (pour le clustering hyperbolique, on va juste exporter A,
     # et on construira similarities dans HypHC directement)
     # ================================
-
-    similarities = optimize_alpha_spectral(A, Scosine, y)
+    
+    results, alpha_opt, k_opt, score_opt, y_opt, similarities = grid_search_alpha_k(
+        A, Scosine,
+        alphas=np.linspace(0, 1, 11),   # ou par ex. np.linspace(0.2, 0.8, 7)
+        k_range=range(2, 11),           # k = nombre de clusters à tester
+        metric='silhouette',           # ou 'calinski' ou 'davies'
+        n_jobs=-1,                      # pour utiliser tous les cœurs CPU
+        verbose=True                    # pour afficher l’avancement
+        )
 
     ###################################
 
