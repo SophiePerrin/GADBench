@@ -632,7 +632,7 @@ for dataset_name, g in graphs_modif.items():
     # 6. Sauvegarde en S3 sur le cloud du datalab INSEE
     # ================================
 
-    BUCKET = "sophieperrinlyon2"
+    BUCKET = "projet-clustering-ano-graphe"
     PREFIX = "albert/"
 
     fs = s3fs.S3FileSystem()
