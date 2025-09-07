@@ -402,51 +402,69 @@ for name, g in graphs_modif.items():
 
 
 # fonctions utiles pour cette partie du programme
-def compute_cosine_similarity_matrix_blockwise(X, block_size=1000, safety_factor=0.8):
-
+def compute_cosine_similarity_matrix_blockwise_safe(X, block_size=1000, safety_factor=0.8, use_memmap=False, memmap_file='S.dat'):
+    """
+    Calcule la matrice de similarité cosinus de X par blocs, en limitant la mémoire utilisée.
+    
+    Args:
+        X (np.ndarray): matrice (N, D)
+        block_size (int): taille des blocs pour le calcul
+        safety_factor (float): fraction maximale de RAM à utiliser
+        use_memmap (bool): si True, la matrice S sera stockée sur disque
+        memmap_file (str): chemin du fichier memmap si use_memmap=True
+    
+    Returns:
+        np.ndarray ou np.memmap: matrice de similarité cosinus
+    """
     import psutil
+    
     N = X.shape[0]
-    print(f"N = {N}, mémoire attendue pour matrice dense = {N*N*4/1e9:.2f} Go")
-    bytes_needed = N * N * 4  # float32 = 4 octets
-    gb_needed = bytes_needed / (1024**3)
-
-    # RAM dispo sur la machine
+    print(f"N = {N}, mémoire théorique pour matrice dense float32 = {N*N*4/1e9:.2f} Go")
+    
+    # RAM dispo
     mem = psutil.virtual_memory()
     gb_avail = mem.available / (1024**3)
-
-    print(f"🔎 N = {N}")
-    print(f"   Mémoire nécessaire (float32 dense) = {gb_needed:.2f} Go")
+    
+    # Taille attendue
+    gb_needed = N * N * 4 / (1024**3)
+    print(f"   Mémoire nécessaire = {gb_needed:.2f} Go")
     print(f"   Mémoire disponible = {gb_avail:.2f} Go")
-
-    # sécurité (ne pas utiliser toute la RAM dispo)
+    
     if gb_needed > safety_factor * gb_avail:
-        raise MemoryError(
-            f"⚠️ Impossible : {gb_needed:.2f} Go requis, "
-            f"mais seulement {gb_avail:.2f} Go disponibles."
-        )
-
-    # --- si on passe ici, alors on tente le calcul ---
-    X = X.astype(np.float32)
-
-    # Normalisation
+        if not use_memmap:
+            print("⚠️ Attention : mémoire RAM insuffisante pour stocker la matrice complète, activation automatique de memmap")
+            use_memmap = True
+    
+    # S'assurer que X est float32 sans copier inutilement
+    if X.dtype != np.float32:
+        X = X.astype(np.float32, copy=False)
+    
+    # Normalisation in-place
     norms = np.linalg.norm(X, axis=1, keepdims=True)
-    X = X / (norms + 1e-8)
-
+    X /= (norms + 1e-8)
+    
     # Matrice de sortie
-    S = np.empty((N, N), dtype=np.float32)
-
+    if use_memmap:
+        S = np.memmap(memmap_file, dtype=np.float32, mode='w+', shape=(N, N))
+    else:
+        S = np.empty((N, N), dtype=np.float32)
+    
+    # Calcul par blocs
     for i in range(0, N, block_size):
         Xi = X[i:min(i+block_size, N)]
         for j in range(0, N, block_size):
             Xj = X[j:min(j+block_size, N)]
             S_block = np.dot(Xi, Xj.T)
             S[i:i+Xi.shape[0], j:j+Xj.shape[0]] = S_block
-
+    
     # Transformation [0,1]
-    S = 0.5 * (1.0 + S)
-    S = np.clip(S, 0.0, 1.0)
+    S *= 0.5
+    S += 0.5
+    np.clip(S, 0.0, 1.0, out=S)
     np.fill_diagonal(S, 1.0)
+    
     return S
+
 '''
 # Calcul de la similarité cosine entre features des noeuds par blocs (pour ne pas exploser la mémoire dispo)
 def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
