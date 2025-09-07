@@ -400,11 +400,57 @@ for name, g in graphs_modif.items():
 
 #############################################
 
+
 # fonctions utiles pour cette partie du programme
+def compute_cosine_similarity_matrix_blockwise(X, block_size=1000, safety_factor=0.8):
 
+    import psutil
+    N = X.shape[0]
+    print(f"N = {N}, mémoire attendue pour matrice dense = {N*N*4/1e9:.2f} Go")
+    bytes_needed = N * N * 4  # float32 = 4 octets
+    gb_needed = bytes_needed / (1024**3)
 
+    # RAM dispo sur la machine
+    mem = psutil.virtual_memory()
+    gb_avail = mem.available / (1024**3)
+
+    print(f"🔎 N = {N}")
+    print(f"   Mémoire nécessaire (float32 dense) = {gb_needed:.2f} Go")
+    print(f"   Mémoire disponible = {gb_avail:.2f} Go")
+
+    # sécurité (ne pas utiliser toute la RAM dispo)
+    if gb_needed > safety_factor * gb_avail:
+        raise MemoryError(
+            f"⚠️ Impossible : {gb_needed:.2f} Go requis, "
+            f"mais seulement {gb_avail:.2f} Go disponibles."
+        )
+
+    # --- si on passe ici, alors on tente le calcul ---
+    X = X.astype(np.float32)
+
+    # Normalisation
+    norms = np.linalg.norm(X, axis=1, keepdims=True)
+    X = X / (norms + 1e-8)
+
+    # Matrice de sortie
+    S = np.empty((N, N), dtype=np.float32)
+
+    for i in range(0, N, block_size):
+        Xi = X[i:min(i+block_size, N)]
+        for j in range(0, N, block_size):
+            Xj = X[j:min(j+block_size, N)]
+            S_block = np.dot(Xi, Xj.T)
+            S[i:i+Xi.shape[0], j:j+Xj.shape[0]] = S_block
+
+    # Transformation [0,1]
+    S = 0.5 * (1.0 + S)
+    S = np.clip(S, 0.0, 1.0)
+    np.fill_diagonal(S, 1.0)
+    return S
+'''
 # Calcul de la similarité cosine entre features des noeuds par blocs (pour ne pas exploser la mémoire dispo)
 def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
+    
     N = X.shape[0]
     X = X.astype(np.float32)
 
@@ -428,7 +474,7 @@ def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
     # Diagonale à 1.0 (au cas où il y aurait un flottement numérique)
     np.fill_diagonal(S, 1.0)
     return S
-
+'''
 # Fonction proposée par chat GPT pour optimiser à la fois alpha et n_cluster dans le cas de clustering spectral non supervisé : 
 def grid_search_alpha_k(A, Scosine, 
                         alphas=np.linspace(0, 1, 11), 
