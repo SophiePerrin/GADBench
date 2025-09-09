@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source ~/miniconda3/bin/activate GADBench
 
 # Définir les variables d’environnement S3
-export AWS_S3_ENDPOINT=minio.lab.sspcloud.fr
+export AWS_S3_ENDPOINT="https//minio.lab.sspcloud.fr"
 
 
 export AWS_DEFAULT_REGION=us-east-1

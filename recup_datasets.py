@@ -402,7 +402,10 @@ for name, g in graphs_modif.items():
 
 
 # fonctions utiles pour cette partie du programme
-def compute_cosine_similarity_matrix_blockwise_safe(X, block_size=1000, safety_factor=0.8, use_memmap=False, memmap_file='S.dat'):
+
+#2e version :
+
+def compute_cosine_similarity_matrix_blockwise(X, block_size=1000, safety_factor=0.8, use_memmap=False, memmap_file='S.dat'):
     """
     Calcule la matrice de similarité cosinus de X par blocs, en limitant la mémoire utilisée.
     
@@ -465,6 +468,8 @@ def compute_cosine_similarity_matrix_blockwise_safe(X, block_size=1000, safety_f
     
     return S
 
+
+#1ere version :
 '''
 # Calcul de la similarité cosine entre features des noeuds par blocs (pour ne pas exploser la mémoire dispo)
 def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
@@ -492,6 +497,8 @@ def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
     # Diagonale à 1.0 (au cas où il y aurait un flottement numérique)
     np.fill_diagonal(S, 1.0)
     return S
+'''
+
 '''
 # Fonction proposée par chat GPT pour optimiser à la fois alpha et n_cluster dans le cas de clustering spectral non supervisé : 
 def grid_search_alpha_k(A, Scosine, 
@@ -551,7 +558,7 @@ def grid_search_alpha_k(A, Scosine,
         best_result['y_pred'], 
         best_result['S']  # 👈 matrice S du meilleur alpha
     )
-
+'''
 
 '''    
 # fonction pour optimiser alpha dans le cadre d'un clustering spectral supervisé
@@ -659,6 +666,7 @@ for dataset_name, g in graphs_modif.items():
     # et on construira similarities dans HypHC directement)
     # ================================
     
+    '''
     results, alpha_opt, k_opt, score_opt, y_opt, similarities = grid_search_alpha_k(
         A, Scosine,
         alphas=np.linspace(0, 1, 11),   # ou par ex. np.linspace(0.2, 0.8, 7)
@@ -667,7 +675,7 @@ for dataset_name, g in graphs_modif.items():
         n_jobs=-1,                      # pour utiliser tous les cœurs CPU
         verbose=True                    # pour afficher l’avancement
         )
-
+    '''
     ###################################
 
     # visualisation de A et Scosine
@@ -707,4 +715,3 @@ for dataset_name, g in graphs_modif.items():
             np.save(f, arr)
             print(f"  ✔ Uploaded {name}")
     print(dataset_name, g.num_nodes(), g.num_edges())
-
