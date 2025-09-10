@@ -1,0 +1,13 @@
+import os
+import s3fs
+
+try:
+    fs = s3fs.S3FileSystem(
+        key=os.environ.get("AWS_ACCESS_KEY_ID"),
+        secret=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+        token=os.environ.get("AWS_SESSION_TOKEN"),  # facultatif
+        client_kwargs={"endpoint_url": os.environ.get("AWS_S3_ENDPOINT")}
+    )
+    print("Connexion OK ! Buckets disponibles :", fs.ls(''))
+except Exception as e:
+    print("Erreur de connexion :", e)

@@ -589,6 +589,47 @@ def optimize_alpha_spectral(A, Scosine, y, alphas=np.linspace(0, 1, 11), metric=
     return results, best_result['alpha'], best_result[metric], best_result['y_pred']
 '''
 
+def get_fs():
+    """
+    Construit un S3FileSystem basé sur les variables d'environnement Onyxia.
+    Vérifie que toutes les variables sont définies et plante avec un message clair sinon.
+    """
+    required_vars = [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_S3_ENDPOINT",
+        "AWS_DEFAULT_REGION",
+    ]
+    
+    missing = [var for var in required_vars if not os.environ.get(var)]
+    if missing:
+        raise EnvironmentError(
+            f"❌ Variables d'environnement manquantes : {', '.join(missing)}\n"
+            "Vérifie que tu as bien relancé ton terminal ou ton script bash pour charger les exports."
+        )
+    
+    # Construction du filesystem
+    fs = s3fs.S3FileSystem(
+        key=os.environ["AWS_ACCESS_KEY_ID"],
+        secret=os.environ["AWS_SECRET_ACCESS_KEY"],
+        token=os.environ["AWS_SESSION_TOKEN"],
+        client_kwargs={
+            "endpoint_url": f"{os.environ['AWS_S3_ENDPOINT']}",
+            "region_name": os.environ["AWS_DEFAULT_REGION"],
+        },
+    )
+    
+    # Petit test : essayer de lister les buckets
+    try:
+        fs.ls("")  # appel simple pour forcer la connexion
+    except Exception as e:
+        raise ConnectionError(f"⚠️ Impossible de se connecter à MinIO : {e}")
+    
+    print("✅ Connexion S3 OK")
+    return fs
+
+
 # Boucle sur tous les datasets
 for dataset_name, g in graphs_modif.items():
     # ================================
@@ -710,7 +751,7 @@ for dataset_name, g in graphs_modif.items():
     # fs = s3fs.S3FileSystem()
 
     endpoint_url = f"{os.environ['AWS_S3_ENDPOINT']}"
-    fs = s3fs.S3FileSystem(client_kwargs={"endpoint_url": endpoint_url})
+    fs = get_fs()
 
 
     for name, arr in [(f"x_{dataset_name}.npy", x), (f"y_{dataset_name}.npy", y), (f"A_{dataset_name}.npy", A)]:
@@ -719,3 +760,4 @@ for dataset_name, g in graphs_modif.items():
             np.save(f, arr)
             print(f"  ✔ Uploaded {name}")
     print(dataset_name, g.num_nodes(), g.num_edges())
+
