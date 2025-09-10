@@ -707,7 +707,11 @@ for dataset_name, g in graphs_modif.items():
     BUCKET = "projet-clustering-ano-graphe"
     PREFIX = "albert/"
 
-    fs = s3fs.S3FileSystem()
+    # fs = s3fs.S3FileSystem()
+
+    endpoint_url = f"{os.environ['AWS_S3_ENDPOINT']}"
+    fs = s3fs.S3FileSystem(client_kwargs={"endpoint_url": endpoint_url})
+
 
     for name, arr in [(f"x_{dataset_name}.npy", x), (f"y_{dataset_name}.npy", y), (f"A_{dataset_name}.npy", A)]:
         path = f"{BUCKET}/{PREFIX}{name}"
