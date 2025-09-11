@@ -589,45 +589,32 @@ def optimize_alpha_spectral(A, Scosine, y, alphas=np.linspace(0, 1, 11), metric=
     return results, best_result['alpha'], best_result[metric], best_result['y_pred']
 '''
 
-def get_fs():
-    """
-    Construit un S3FileSystem basé sur les variables d'environnement Onyxia.
-    Vérifie que toutes les variables sont définies et plante avec un message clair sinon.
-    """
-    required_vars = [
-        "AWS_ACCESS_KEY_ID",
-        "AWS_SECRET_ACCESS_KEY",
-        "AWS_SESSION_TOKEN",
-        "AWS_S3_ENDPOINT",
-        "AWS_DEFAULT_REGION",
-    ]
+def get_fs(bucket="projet-clustering-ano-graphe"):
+    import os, s3fs
     
-    missing = [var for var in required_vars if not os.environ.get(var)]
-    if missing:
-        raise EnvironmentError(
-            f"❌ Variables d'environnement manquantes : {', '.join(missing)}\n"
-            "Vérifie que tu as bien relancé ton terminal ou ton script bash pour charger les exports."
-        )
+    required = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_S3_ENDPOINT"]
+    for var in required:
+        if not os.environ.get(var):
+            raise EnvironmentError(f"⚠️ Variable {var} manquante, vérifie ton script bash / Onyxia secrets")
     
-    # Construction du filesystem
     fs = s3fs.S3FileSystem(
         key=os.environ["AWS_ACCESS_KEY_ID"],
         secret=os.environ["AWS_SECRET_ACCESS_KEY"],
-        token=os.environ["AWS_SESSION_TOKEN"],
+        token=os.environ.get("AWS_SESSION_TOKEN"),
         client_kwargs={
-            "endpoint_url": f"{os.environ['AWS_S3_ENDPOINT']}",
-            "region_name": os.environ["AWS_DEFAULT_REGION"],
-        },
+            "endpoint_url": os.environ["AWS_S3_ENDPOINT"],
+            "region_name": "us-east-1"
+        }
     )
-    
-    # Petit test : essayer de lister les buckets
+
+    # Test de connexion sur ton bucket (et pas sur tout MinIO)
     try:
-        fs.ls("")  # appel simple pour forcer la connexion
+        fs.ls(bucket)
     except Exception as e:
-        raise ConnectionError(f"⚠️ Impossible de se connecter à MinIO : {e}")
+        raise ConnectionError(f"⚠️ Impossible de se connecter au bucket {bucket} : {e}")
     
-    print("✅ Connexion S3 OK")
     return fs
+
 
 
 # Boucle sur tous les datasets
