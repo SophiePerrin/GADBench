@@ -36,6 +36,14 @@ from joblib import Parallel, delayed
 
 
 def analyser_aretes(g, poids_key='count'): # fonction utilisée tout à la fin de la fonction describe_dgl_graph()
+    '''
+    Cette fonction analyse la structure des arêtes d’un graphe DGL et affiche :
+
+        -le nombre total d’arêtes,
+        -la répartition entre auto-boucles et arêtes normales (avec leurs poids min/max),
+        -la répartition entre arêtes ayant une arête inverse et celles qui n’en ont pas (avec leurs poids min/max).
+    
+    '''
     src, dst = g.edges()
     weights = g.edata[poids_key]
 
@@ -71,7 +79,42 @@ def analyser_aretes(g, poids_key='count'): # fonction utilisée tout à la fin d
 
 
 def describe_dgl_graph(g, name, max_examples=5):
-    print(f"📊 Résumé du graphe DGL du jeu de données {name}")
+    '''
+    C'est une fonction d’exploration et de diagnostic d’un graphe DGL. Elle affiche un résumé complet du graphe, 
+    en examinant ses nœuds, ses arêtes, ses attributs et sa structure.
+
+    Voici ce qu'elle fait :
+
+    🔹 1. Informations générales - la fonction :
+
+        Affiche le nom du graphe, son nombre de nœuds et d’arêtes.
+        Vérifie si le graphe est orienté (via NetworkX).
+        Vérifie s’il est homogène et/ou unibipartite.
+
+    🔹 2. Attributs des nœuds et arêtes - la fonction : 
+
+        Montre la forme des tenseurs dans g.ndata (features, labels, masques, etc.), avec quelques exemples de valeurs.
+        Montre aussi les attributs des arêtes (par ex. poids count).
+
+    🔹 3. Masques de données : la fonction affiche combien de nœuds sont marqués comme train/val/test, si ces masques existent.
+
+    🔹 4. Échantillons d’arêtes : la fonction liste quelques arêtes avec leur source et destination.
+
+    🔹 5. Matrice d’adjacence - la fonction :
+
+        Construit une matrice d’adjacence pondérée (avec count comme poids).
+        Vérifie si la matrice est symétrique (→ graphe non orienté) ou non (→ graphe orienté).
+
+    🔹 6. Analyse des arêtes : la fonction calcule combien d’arêtes sont :
+
+        des auto-boucles (i → i),
+        des arêtes entre nœuds différents (i → j avec i ≠ j).
+        donne la plage de poids des arêtes (min et max).
+        vérifie si chaque arête a son arête inverse (symétrie du graphe).
+        appelle analyser_aretes(g) pour approfondir l’analyse des arêtes.
+
+    '''
+    print(f"Résumé du graphe DGL du jeu de données {name}")
     print("-" * 40)
     print(f"Nombre de nœuds : {g.num_nodes()}")
     print(f"Nombre d'arêtes : {g.num_edges()}")
@@ -179,6 +222,11 @@ def describe_dgl_graph(g, name, max_examples=5):
 
 
 def analyze_feature_redundancy(graph, variance_thresh=1e-6, corr_thresh=0.95, pca_variance=0.95):
+    '''
+    Cette fonction nettoie les attributs des nœuds (normalisation, suppression faible variance/redondance) 
+    puis applique une PCA pour réduire la dimensionnalité et met à jour le graphe avec ces nouveaux attributs
+    des noeuds.
+    '''
     # 1. Extraire les features
     X = graph.ndata['feature'].numpy()
 
@@ -198,7 +246,6 @@ def analyze_feature_redundancy(graph, variance_thresh=1e-6, corr_thresh=0.95, pc
     print("Moyenne max (= 0 si déjà centrée réduite):", means.max())
     print("Écart-type min (= 1 si déjà centrée réduite) :", stds.min())
     print("Écart-type max (= 1 si déjà centrée réduite) :", stds.max())
-
 
     # Résultat : ni reddit ni weibo ne sont centrés réduits, alors qu'ils doivent l'être pour effectuer la PCA
 
@@ -227,7 +274,7 @@ def analyze_feature_redundancy(graph, variance_thresh=1e-6, corr_thresh=0.95, pc
     # 5. Features très corrélées (calculé sur X d'origine, pas X_clean)
     corr_matrix = np.corrcoef(X, rowvar=False)
     np.fill_diagonal(corr_matrix, 0)
-    
+   
     # Matrice de corrélation absolue
     abs_corr = np.abs(corr_matrix)
 
@@ -270,7 +317,6 @@ def analyze_feature_redundancy(graph, variance_thresh=1e-6, corr_thresh=0.95, pc
     X_pca = pca.transform(X_clean)
     graph.ndata['feature'] = torch.tensor(X_pca, dtype=torch.float32)
 
-
     # 9. Retourner les résultats
     return {
         'features_supprimées_par_variance': low_var_idx.tolist(),  
@@ -281,6 +327,14 @@ def analyze_feature_redundancy(graph, variance_thresh=1e-6, corr_thresh=0.95, pc
 
 
 def make_weighted_undirected_with_node_features(g):
+    '''
+    Cette fonction convertit un graphe orienté en graphe non orienté pondéré.
+    Pour cela, elle fusionne les arêtes (u, v) et (v, u), attribue un poids 
+    1.0 si la relation est bidirectionnelle (ou boucle),
+    0.5 si elle est unidirectionnelle, 
+    puis recrée un graphe non orienté en recopiant les attributs des nœuds
+    et en ajoutant les poids dans edata['count'].
+    '''
     # 1. Extraire les arêtes orientées
     src, dst = g.edges()
 
@@ -348,7 +402,7 @@ for dataset_name in datasets:
 
     describe_dgl_graph(g, dataset_name, 2)
     
-graphs_modif = {} # Dictionnaire pour stocker les graphes après les modifications faites ci-dessous
+graphs_modif = {}  # Dictionnaire pour stocker les graphes après les modifications faites ci-dessous
 
 #############################################
 
@@ -395,15 +449,14 @@ for name, g in graphs_modif.items():
 
 #############################################
 
-# Export des noeuds+features (x), des labels (y), calcul de la matrice de similarité (issue de A remaniée) des graphes de données
-# pour le clustering spectral, et export de A pour utilisation par HypHC
+# Export des noeuds+attributs (x), des labels (y), calcul de la matrice de similarité 
+# (issue de la matrice d'adjacence A remaniée) des graphes de données pour le clustering spectral, 
+# et export de A pour utilisation par HypHC
 
 #############################################
 
 
 # fonctions utiles pour cette partie du programme
-
-#2e version :
 
 def compute_cosine_similarity_matrix_blockwise(X, block_size=1000, safety_factor=0.8, use_memmap=False, memmap_file='S.dat'):
     """
@@ -469,37 +522,9 @@ def compute_cosine_similarity_matrix_blockwise(X, block_size=1000, safety_factor
     return S
 
 
-#1ere version :
 '''
-# Calcul de la similarité cosine entre features des noeuds par blocs (pour ne pas exploser la mémoire dispo)
-def compute_cosine_similarity_matrix_blockwise(X, block_size=1000):
-    
-    N = X.shape[0]
-    X = X.astype(np.float32)
+# Cette fonction fait désormais planter le serveur du ssp lab... 
 
-    # Normalisation des vecteurs ligne de X
-    norms = np.linalg.norm(X, axis=1, keepdims=True)
-    X = X / (norms + 1e-8)  # pour éviter la division par zéro
-
-    # Matrice de sortie
-    S = np.empty((N, N), dtype=np.float32)
-
-    for i in range(0, N, block_size):
-        Xi = X[i:min(i+block_size, N)]
-        for j in range(0, N, block_size):
-            Xj = X[j:min(j+block_size, N)]
-            S_block = np.dot(Xi, Xj.T)
-            S[i:i+Xi.shape[0], j:j+Xj.shape[0]] = S_block
-
-    # transformation de la similarité cosine en une similarité comprise entre 0 et 1 
-    S = 0.5 * (1.0 + S)
-    S = np.clip(S, 0.0, 1.0)
-    # Diagonale à 1.0 (au cas où il y aurait un flottement numérique)
-    np.fill_diagonal(S, 1.0)
-    return S
-'''
-
-'''
 # Fonction proposée par chat GPT pour optimiser à la fois alpha et n_cluster dans le cas de clustering spectral non supervisé : 
 def grid_search_alpha_k(A, Scosine, 
                         alphas=np.linspace(0, 1, 11), 
@@ -561,6 +586,8 @@ def grid_search_alpha_k(A, Scosine,
 '''
 
 '''    
+# Cette fonction n'est pas adaptée du tout à ce qu'on veut faire : un clustering spectral NON supervisé...
+
 # fonction pour optimiser alpha dans le cadre d'un clustering spectral supervisé
 def optimize_alpha_spectral(A, Scosine, y, alphas=np.linspace(0, 1, 11), metric='ARI'):
     assert metric in ['ARI', 'NMI'], "metric doit être 'ARI' ou 'NMI'"
@@ -589,9 +616,14 @@ def optimize_alpha_spectral(A, Scosine, y, alphas=np.linspace(0, 1, 11), metric=
     return results, best_result['alpha'], best_result[metric], best_result['y_pred']
 '''
 
+
 def get_fs(bucket="projet-clustering-ano-graphe"):
-    import os, s3fs
-    
+    '''
+    Cette fonction vérifie la présence des variables d’environnement AWS nécessaires
+    puis crée et retourne un système de fichiers S3 (s3fs.S3FileSystem) 
+    configuré avec ces identifiants et l’endpoint fourni.
+    '''
+       
     required = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_S3_ENDPOINT"]
     for var in required:
         if not os.environ.get(var):
@@ -607,7 +639,7 @@ def get_fs(bucket="projet-clustering-ano-graphe"):
         }
     )
 
-    # Test de connexion sur ton bucket (et pas sur tout MinIO)
+    # Test de connexion sur le bucket du projet 
     try:
         fs.ls(bucket)
     except Exception as e:
@@ -616,8 +648,35 @@ def get_fs(bucket="projet-clustering-ano-graphe"):
     return fs
 
 
+# Boucle sur tous les datasets :
+# cette boucle prépare chaque graphe pour le clustering en extrayant ses features et labels,
+# en construisant sa matrice d’adjacence et sa similarité cosinus,
+# en visualisant les matrices obtenues, puis en exportant le tout vers S3.
 
-# Boucle sur tous les datasets
+'''
+En détails, pour chaque dataset, la boucle fait : 
+
+1 - Extraction des features des nœuds : récupère les features feature de chaque nœud 
+et les convertit en tableau NumPy.
+
+2 - Extraction des étiquettes Y : récupère les labels des nœuds s’ils existent, 
+sinon crée un vecteur rempli de None pour indiquer l’absence d’étiquettes.
+
+3 - Construction de la matrice d’adjacence pondérée : initialise une matrice carrée A
+(matrice d'adjacence du graphe) et la remplit avec les poids des arêtes (ou 1 si arête non pondérée).
+
+4 - Calcul de la matrice de similarité cosinus Scosine entre features de nœuds : normalise les features, 
+calcule leur similarité cosinus par blocs, puis applique une transformation exponentielle pour accentuer les différences.
+
+5 - Préparation d’une matrice de similarité combinée : prévoit de combiner la matrice A 
+et la similarité cosinus avec un hyperparamètre alpha (utilisée pour le clustering spectral).
+
+Visualisation (optionnel, non exécuté ici): génère et sauvegarde une image comparant A et la matrice de similarité cosinus.
+
+6 - Export des données vers S3 : sauvegarde dans un bucket S3 les attributs x des noeuds, 
+les labels y et la matrice d’adjacence A pour le dataset courant.
+'''
+
 for dataset_name, g in graphs_modif.items():
     # ================================
     # 1. Extraction des features des nœuds
@@ -632,8 +691,8 @@ for dataset_name, g in graphs_modif.items():
         # Si les labels sont présents, on les extrait
         y = g.ndata['label'].cpu().numpy()
     else:
-        # Sinon, on utilise -1 pour indiquer l'absence d'étiquette
-        y = np.full(g.num_nodes(), fill_value=-1)                       # EST CE QUE CE TRUC LA EST UNE PRATIQUE OK ???
+        # Sinon, on met None pour indiquer l'absence d'étiquette
+        y = np.full(g.num_nodes(), fill_value=None)                      
 
     # ================================
     # 3. Création de la matrice de poids des arêtes
@@ -682,7 +741,7 @@ for dataset_name, g in graphs_modif.items():
     print("Nouvelle norme moyenne :", norms.mean())
     print("Nouvelle norme max :", norms.max())
 
-    # Calcul de la similarité cosine entre features des noeuds par blocs (pour ne pas exploser la mémoire dispo)
+    # Calcul de la similarité cosine entre features des noeuds par blocs (pour ne pas exploser la mémoire disponible)
     Scosine = compute_cosine_similarity_matrix_blockwise(x, block_size=1000)
 
     Scosine = np.exp(Scosine * 10)  # accentue les différences car sinon nos Scosine sont très "plates" (tout s'y ressemble !)
@@ -695,6 +754,8 @@ for dataset_name, g in graphs_modif.items():
     # ================================
     
     '''
+    # fait planter l'environnement du data lab : à retravailler.
+
     results, alpha_opt, k_opt, score_opt, y_opt, similarities = grid_search_alpha_k(
         A, Scosine,
         alphas=np.linspace(0, 1, 11),   # ou par ex. np.linspace(0.2, 0.8, 7)
@@ -703,6 +764,8 @@ for dataset_name, g in graphs_modif.items():
         n_jobs=-1,                      # pour utiliser tous les cœurs CPU
         verbose=True                    # pour afficher l’avancement
         )
+    '''
+
     '''
     ###################################
 
@@ -726,7 +789,7 @@ for dataset_name, g in graphs_modif.items():
         plt.close()  # ferme proprement la figure pour éviter les fuites mémoire
 
     plot_similarity_matrices(A, Scosine, f"matrices_{dataset_name}.png")
-
+    '''
 
     # ================================
     # 6. Sauvegarde en S3 sur le cloud du datalab INSEE
@@ -740,11 +803,9 @@ for dataset_name, g in graphs_modif.items():
     endpoint_url = f"{os.environ['AWS_S3_ENDPOINT']}"
     fs = get_fs()
 
-
     for name, arr in [(f"x_{dataset_name}.npy", x), (f"y_{dataset_name}.npy", y), (f"A_{dataset_name}.npy", A)]:
         path = f"{BUCKET}/{PREFIX}{name}"
         with fs.open(path, "wb") as f:
             np.save(f, arr)
             print(f"  ✔ Uploaded {name}")
     print(dataset_name, g.num_nodes(), g.num_edges())
-
