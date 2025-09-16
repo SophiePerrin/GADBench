@@ -45,8 +45,8 @@ def load_data_s3(name, dataset_name):               # ###
     fs = s3fs.S3FileSystem(client_kwargs={'endpoint_url': S3_ENDPOINT_URL})
 
     # Spécifier le chemin dans le bucket
-    BUCKET = "sophieperrinlyon2"
-    FILE_KEY_S3 = f"albert/{name}_{dataset_name}.npy"  # Remplace par le chemin correct
+    BUCKET = "projet-clustering-ano-graphe"
+    FILE_KEY_S3 = f"albert/{name}_{dataset_name}.npy"  # le chemin correct
     FILE_PATH_S3 = BUCKET + "/" + FILE_KEY_S3
 
     # Charger le fichier .npy depuis S3
