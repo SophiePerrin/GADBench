@@ -11,6 +11,11 @@ seed_list = list(range(3407, 10000, 10))
 
 
 def set_seed(seed=3407):
+    '''
+    assure que les tirages aléatoires et certains calculs dépendent 
+    toujours de la même graine (3407 par défaut), ce qui permet de reproduire
+    exactement les mêmes résultats entre différents runs d’un script.
+    '''
     os.environ['PYTHONHASHSEED'] = str(seed)
     random.seed(seed)
     np.random.seed(seed)
@@ -22,6 +27,12 @@ def set_seed(seed=3407):
 
 
 def load_data_s3(name, dataset_name):               # ###
+    '''
+    Cette fonction charge un fichier NumPy (.npy) identifié par name et dataset_name.
+        - Si le fichier est déjà présent en local → elle le lit directement.
+        - Sinon → elle le télécharge depuis un bucket S3, puis le charge en mémoire.
+        - Optionnellement, elle peut le mettre en cache local pour les prochaines utilisations.
+    '''
     local_path = f"/tmp/{name}_{dataset_name}.npy"
 
     if os.path.exists(local_path):
@@ -58,7 +69,10 @@ parser.add_argument('--semi_supervised', type=int, default=0)
 parser.add_argument('--inductive', type=int, default=0)
 parser.add_argument('--models', type=str, default=None)
 parser.add_argument('--datasets', type=str, default=None)
-parser.add_argument('--use_clusters', action='store_true', help='Utiliser les embeddings hyperboliques en entrée du modèle')
+parser.add_argument('--use_clusters_hyp', action='store_true', help='Utiliser les embeddings hyperboliques en entrée du modèle')
+parser.add_argument('--use_clusters_spectr', action='store_true', help='Utiliser les résultats du clustering spectral en entrée du modèle')
+parser.add_argument('--use_clusters_tout', action='store_true', help='Utiliser les embeddings hyperboliques concaténés aux résultats du clustering spectral en entrée du modèle')
+
 
 args = parser.parse_args()
 
@@ -104,13 +118,37 @@ for model in models:
 
         # les embeddings sont dans un fichier .npy                          # ###
 
-        if args.use_clusters:
-            clusters = load_data_s3("leaves_emb", dataset_name)
-            data.clusters = clusters
-            cluster_dim = clusters.shape[1]
-        else:
-            data.clusters = None
-            cluster_dim = 0
+        clusters = None  # valeur par défaut
+
+        match True:
+            case _ if args.use_clusters_hyp:
+                # Embeddings "leaves_emb" depuis S3
+                clusters = load_data_s3("leaves_emb", dataset_name)
+
+            case _ if args.use_clusters_spectr:
+                # Résultats du clustering spectral
+                clusters = y_spectral
+
+            case _ if args.use_clusters_tout:
+                # Concaténation des deux sources
+                clusters_hyp = load_data_s3("leaves_emb", dataset_name)
+
+                if clusters_hyp.shape[0] != y_spectral.shape[0]:
+                    raise ValueError(
+                        f"Incompatibilité de dimensions : "
+                        f"leaves_emb a {clusters_hyp.shape[0]} lignes mais "
+                        f"y_spectral en a {y_spectral.shape[0]}"
+                    )
+
+                clusters = np.concatenate([clusters_hyp, y_spectral], axis=1)
+
+            case _:
+                # Aucun cluster
+                clusters = None
+
+        # Affectation unique à data
+        data.clusters = clusters
+        cluster_dim = clusters.shape[1] if clusters is not None else 0
 
         # clusters = load_data_s3("leaves_emb", dataset_name)
         # data.clusters = clusters
