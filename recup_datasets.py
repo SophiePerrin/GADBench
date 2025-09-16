@@ -669,7 +669,7 @@ sinon crée un vecteur rempli de None pour indiquer l’absence d’étiquettes.
 calcule leur similarité cosinus par blocs, puis applique une transformation exponentielle pour accentuer les différences.
 
 5 - Préparation d’une matrice de similarité combinée : prévoit de combiner la matrice A 
-et la similarité cosinus avec un hyperparamètre alpha (utilisée pour le clustering spectral).
+et la similarité cosinus avec un hyperparamètre alpha (utilisée pour le clustering spectral, qui reste à faire).
 
 Visualisation (optionnel, non exécuté ici): génère et sauvegarde une image comparant A et la matrice de similarité cosinus.
 
@@ -766,6 +766,33 @@ for dataset_name, g in graphs_modif.items():
         )
     '''
 
+    def make_random_clustering(g, k, seed=None):
+        """
+        Génère un vecteur d'affectations de clusters aléatoires pour un graphe DGL donné.
+    
+        Paramètres
+        ----------
+        g : le graphe DGL dont on veut simuler le clustering.
+        k : le nombre de clusters.
+        seed : int ou None - graine aléatoire pour la reproductibilité (optionnel).
+    
+        Retour
+        ------
+        y_random : np.ndarray de taille (num_nodes,) - vecteur d'affectations de clusters aléatoires.
+        """
+
+        if seed is not None:
+            np.random.seed(seed)
+    
+        n = g.num_nodes()
+        y_random = np.random.randint(low=0, high=k, size=n)
+
+        print(y_random.shape)   # (n,)
+        print(y_random[:20])    # aperçu des 20 premières affectations
+        return y_random
+
+    y_spectral = make_random_clustering(g, 5, seed=43)
+    
     '''
     ###################################
 
