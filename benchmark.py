@@ -127,15 +127,20 @@ for model in models:
             case _ if args.use_clusters_hyp:
                 # Embeddings "leaves_emb" depuis S3
                 clusters = load_data_s3("leaves_emb", dataset_name)
+                data.clusters = clusters
+                cluster_dim = clusters.shape[1] 
 
             case _ if args.use_clusters_spectr:
                 # Résultats du clustering spectral
-                clusters = np.load(f"/work/GADBench/results{dataset_name}/y_spectral.npy")
+                clusters = np.load(f"/home/onyxia/work/GADBench/results/{dataset_name}/y_spectral.npy")
+                data.clusters = clusters.reshape(-1, 1)
+                cluster_dim = 1
 
             case _ if args.use_clusters_tout:
                 # Concaténation des deux sources
                 clusters_hyp = load_data_s3("leaves_emb", dataset_name)
-                clusters_spectr = np.load(f"/work/GADBench/results{dataset_name}/y_spectral.npy")
+                clusters_spectr0 = np.load(f"/home/onyxia/work/GADBench/results/{dataset_name}/y_spectral.npy")
+                clusters_spectr = clusters_spectr0.reshape(-1,1)
                 if clusters_hyp.shape[0] != clusters_spectr.shape[0]:
                     raise ValueError(
                         f"Incompatibilité de dimensions : "
@@ -144,15 +149,17 @@ for model in models:
                     )
 
                 clusters = np.concatenate([clusters_hyp, clusters_spectr], axis=1)
+                data.clusters = clusters
+                cluster_dim = clusters.shape[1] if clusters is not None else 0
 
             case _:
                 # Aucun cluster
                 clusters = None
-
+        '''
         # Affectation unique à data
         data.clusters = clusters
         cluster_dim = clusters.shape[1] if clusters is not None else 0
-
+        '''
         # clusters = load_data_s3("leaves_emb", dataset_name)
         # data.clusters = clusters
         

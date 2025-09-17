@@ -793,8 +793,15 @@ for dataset_name, g in graphs_modif.items():
 
     y_spectral = make_random_clustering(g, 5, seed=43)
     
-    np.save(f"/work/GADBench/results{dataset_name}/y_spectral.npy", y_spectral)
-    print(f"y_spectral sauvegardé dans /work/GADBench/results{dataset_name}/y_spectral.npy")
+   
+    # Chemin de sortie
+    output_dir = f"/home/onyxia/work/GADBench/results/{dataset_name}"
+    os.makedirs(output_dir, exist_ok=True)  # crée le dossier 
+
+    # Sauvegarde
+    np.save(f"{output_dir}/y_spectral.npy", y_spectral)
+    print(f"y_spectral sauvegardé dans {output_dir}/y_spectral.npy")
+
     '''
     ###################################
 
