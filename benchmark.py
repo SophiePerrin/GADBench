@@ -122,6 +122,7 @@ for model in models:
         # les embeddings sont dans un fichier .npy                          # ###
 
         clusters = None  # valeur par défaut
+        cluster_dim = 0  # valeur par défaut
 
         match True:
             case _ if args.use_clusters_hyp:
@@ -155,6 +156,8 @@ for model in models:
             case _:
                 # Aucun cluster
                 clusters = None
+                data.clusters = clusters
+                cluster_dim = 0
         '''
         # Affectation unique à data
         data.clusters = clusters
