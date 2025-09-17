@@ -39,8 +39,11 @@ def load_data_s3(name, dataset_name):               # ###
         return np.load(local_path)
 
     # Paramètres S3
-    S3_ENDPOINT_URL = "https://" + os.environ["AWS_S3_ENDPOINT"]
-
+    endpoint = os.environ["AWS_S3_ENDPOINT"]
+    if endpoint.startswith("http"):
+        S3_ENDPOINT_URL = endpoint
+    else:
+        S3_ENDPOINT_URL = "https://" + endpoint
     # Initialiser le système de fichiers S3
     fs = s3fs.S3FileSystem(client_kwargs={'endpoint_url': S3_ENDPOINT_URL})
 
@@ -127,20 +130,20 @@ for model in models:
 
             case _ if args.use_clusters_spectr:
                 # Résultats du clustering spectral
-                clusters = y_spectral
+                clusters = np.load(f"/work/GADBench/results{dataset_name}/y_spectral.npy")
 
             case _ if args.use_clusters_tout:
                 # Concaténation des deux sources
                 clusters_hyp = load_data_s3("leaves_emb", dataset_name)
-
-                if clusters_hyp.shape[0] != y_spectral.shape[0]:
+                clusters_spectr = np.load(f"/work/GADBench/results{dataset_name}/y_spectral.npy")
+                if clusters_hyp.shape[0] != clusters_spectr.shape[0]:
                     raise ValueError(
                         f"Incompatibilité de dimensions : "
                         f"leaves_emb a {clusters_hyp.shape[0]} lignes mais "
-                        f"y_spectral en a {y_spectral.shape[0]}"
+                        f"y_spectral en a {clusters_spectr.shape[0]}"
                     )
 
-                clusters = np.concatenate([clusters_hyp, y_spectral], axis=1)
+                clusters = np.concatenate([clusters_hyp, clusters_spectr], axis=1)
 
             case _:
                 # Aucun cluster
