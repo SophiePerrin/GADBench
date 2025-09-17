@@ -521,6 +521,87 @@ def compute_cosine_similarity_matrix_blockwise(X, block_size=1000, safety_factor
     
     return S
 
+import dgl
+import torch
+import numpy as np
+import scipy.sparse as sp
+from scipy.sparse.linalg import eigsh
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+
+def spectral_clustering_dgl(g, Scosine, 
+                            alphas=np.linspace(0, 1, 5), 
+                            k_range=range(2, 11), 
+                            metric='silhouette',
+                            device='cpu', verbose=False):
+    """
+    Clustering spectral non supervisé sur graphe DGL (massif),
+    avec combinaison adjacency + similarité attributs.
+    
+    g : DGLGraph (non orienté, pondéré)
+    Scosine : np.array ou sparse matrix [N x N] (similarité des features)
+    alphas : liste de poids pour la combinaison
+    k_range : liste de nombres de clusters à tester
+    metric : 'silhouette', 'calinski', 'davies'
+    """
+
+    N = g.num_nodes()
+    # Adjacence creuse depuis DGL
+    A = g.adj_external(scipy_fmt="csr")
+    results = []
+
+    def evaluate(alpha, k):
+        # Combinaison pondérée (sparse + dense possible)
+        if sp.issparse(Scosine):
+            S = alpha * A + (1 - alpha) * Scosine
+        else:
+            S = alpha * A + (1 - alpha) * sp.csr_matrix(Scosine)
+
+        # Laplacien normalisé
+        d = np.array(S.sum(1)).flatten()
+        D_inv_sqrt = sp.diags(1.0 / np.sqrt(d + 1e-10))
+        L = sp.eye(N) - D_inv_sqrt @ S @ D_inv_sqrt
+
+        # Approximation des k premiers vecteurs propres
+        try:
+            eigvals, eigvecs = eigsh(L, k=k, which='SM')  # small eigenvalues
+            X = eigvecs
+
+            # Clustering k-means
+            y_pred = KMeans(n_clusters=k, n_init=10).fit_predict(X)
+
+            # Score interne
+            if metric == 'silhouette':
+                score = silhouette_score(X, y_pred)
+            elif metric == 'calinski':
+                score = calinski_harabasz_score(X, y_pred)
+            elif metric == 'davies':
+                score = -davies_bouldin_score(X, y_pred)  # inversion
+            else:
+                raise ValueError("Metric inconnue")
+
+            if verbose:
+                print(f"[α={alpha:.2f}, k={k}] {metric} = {score:.3f}")
+
+            return {'alpha': alpha, 'k': k, 'score': score, 'y_pred': y_pred}
+
+        except Exception as e:
+            if verbose:
+                print(f"[α={alpha:.2f}, k={k}] Erreur: {e}")
+            return None
+
+    # Exploration (⚠️ coûteux si beaucoup d’α et de k)
+    for alpha in alphas:
+        for k in k_range:
+            res = evaluate(alpha, k)
+            if res is not None:
+                results.append(res)
+
+    # Choix du meilleur
+    best = max(results, key=lambda r: r['score'])
+    print(f"\n✅ Meilleur: α={best['alpha']:.2f}, k={best['k']}, score={best['score']:.3f}")
+
+    return results, best
 
 '''
 # Cette fonction fait désormais planter le serveur du ssp lab... 
@@ -753,6 +834,8 @@ for dataset_name, g in graphs_modif.items():
     # et on construira similarities dans HypHC directement)
     # ================================
     
+    results, best = spectral_clustering_dgl(g, Scosine, alphas=np.linspace(0, 1, 5), k_range=2, metric='silhouette', device='cpu', verbose=False)
+  
     '''
     # fait planter l'environnement du data lab : à retravailler.
 
