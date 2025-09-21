@@ -35,6 +35,61 @@ from joblib import Parallel, delayed
 #############################################
 
 
+def analyze_degrees(g):
+    """
+    Calcule et affiche les statistiques descriptives des in-degree et out-degree d'un graphe DGL.
+    
+    Paramètres
+    ----------
+    g : dgl.DGLGraph
+        Graphe à analyser.
+    
+    Retour
+    ------
+    dict
+        Un dictionnaire contenant les stats pour in-degree et out-degree.
+    """
+    def describe_tensor(x):
+        x = x.float()
+        stats = {
+            "moyenne": x.mean().item(),
+            "écart-type": x.std(unbiased=False).item(),
+            "min": x.min().item(),
+            "Q1": torch.quantile(x, 0.25).item(),
+            "médiane": torch.median(x).item(),
+            "Q3": torch.quantile(x, 0.75).item(),
+            "max": x.max().item(),
+        }
+        return stats
+
+    in_deg = g.in_degrees()
+    out_deg = g.out_degrees()
+
+    stats_in = describe_tensor(in_deg)
+    stats_out = describe_tensor(out_deg)
+
+    # Affichage
+    print("=== In-degree ===")
+    print(f"Moyenne  : {stats_in['moyenne']:.2f}")
+    print(f"Écart-type : {stats_in['écart-type']:.2f}")
+    print(f"Min      : {stats_in['min']}")
+    print(f"Q1       : {stats_in['Q1']}")
+    print(f"Médiane  : {stats_in['médiane']}")
+    print(f"Q3       : {stats_in['Q3']}")
+    print(f"Max      : {stats_in['max']}\n")
+
+    print("=== Out-degree ===")
+    print(f"Moyenne  : {stats_out['moyenne']:.2f}")
+    print(f"Écart-type : {stats_out['écart-type']:.2f}")
+    print(f"Min      : {stats_out['min']}")
+    print(f"Q1       : {stats_out['Q1']}")
+    print(f"Médiane  : {stats_out['médiane']}")
+    print(f"Q3       : {stats_out['Q3']}")
+    print(f"Max      : {stats_out['max']}\n")
+
+    return {"in-degree": stats_in, "out-degree": stats_out}
+
+
 def analyser_aretes(g, poids_key='count'): # fonction utilisée tout à la fin de la fonction describe_dgl_graph()
     '''
     Cette fonction analyse la structure des arêtes d’un graphe DGL et affiche :
@@ -113,6 +168,7 @@ def describe_dgl_graph(g, name, max_examples=5):
         vérifie si chaque arête a son arête inverse (symétrie du graphe).
         appelle analyser_aretes(g) pour approfondir l’analyse des arêtes.
 
+        7. Analyse sur les degrés des noeuds.
     '''
     print(f"Résumé du graphe DGL du jeu de données {name}")
     print("-" * 40)
@@ -212,7 +268,7 @@ def describe_dgl_graph(g, name, max_examples=5):
     else:
         print(f"⚠️ Le graphe est orienté : {len(asym_edges)} arêtes n’ont pas leur inverse.")
     analyser_aretes(g)
-
+    analyze_degrees(g)
 #############################################
 
 # Fonctions pour la réduction de dimension des features des noeuds des graphes (lorsque utile)
@@ -520,7 +576,7 @@ def compute_cosine_similarity_matrix_blockwise(X, block_size=1000, safety_factor
     np.fill_diagonal(S, 1.0)
     
     return S
-
+'''
 import dgl
 import torch
 import numpy as np
@@ -602,7 +658,7 @@ def spectral_clustering_dgl(g, Scosine,
     print(f"\n✅ Meilleur: α={best['alpha']:.2f}, k={best['k']}, score={best['score']:.3f}")
 
     return results, best
-
+'''
 '''
 # Cette fonction fait désormais planter le serveur du ssp lab... 
 
@@ -834,7 +890,7 @@ for dataset_name, g in graphs_modif.items():
     # et on construira similarities dans HypHC directement)
     # ================================
     
-    results, best = spectral_clustering_dgl(g, Scosine, alphas=np.linspace(0, 1, 5), k_range=2, metric='silhouette', device='cpu', verbose=False)
+    # results, best = spectral_clustering_dgl(g, Scosine, alphas=np.linspace(0, 1, 5), k_range=2, metric='silhouette', device='cpu', verbose=False)
   
     '''
     # fait planter l'environnement du data lab : à retravailler.
