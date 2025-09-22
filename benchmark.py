@@ -26,14 +26,14 @@ def set_seed(seed=3407):
         torch.backends.cudnn.deterministic = True
 
 
-def load_data_s3(name, dataset_name):               # ###
+def load_data_s3(name, dataset_name, param_hyp=None):               # ###
     '''
     Cette fonction charge un fichier NumPy (.npy) identifié par name et dataset_name.
         - Si le fichier est déjà présent en local → elle le lit directement.
         - Sinon → elle le télécharge depuis un bucket S3, puis le charge en mémoire.
         - Optionnellement, elle peut le mettre en cache local pour les prochaines utilisations.
     '''
-    local_path = f"/tmp/{name}_{dataset_name}.npy"
+    local_path = f"/tmp/{name}_{dataset_name}{param_hyp}.npy"
 
     if os.path.exists(local_path):
         return np.load(local_path)
@@ -49,7 +49,7 @@ def load_data_s3(name, dataset_name):               # ###
 
     # Spécifier le chemin dans le bucket
     BUCKET = "projet-clustering-ano-graphe"
-    FILE_KEY_S3 = f"albert/{name}_{dataset_name}.npy"  # le chemin correct
+    FILE_KEY_S3 = f"albert/{name}_{dataset_name}{param_hyp}.npy"  # le chemin correct
     FILE_PATH_S3 = BUCKET + "/" + FILE_KEY_S3
 
     # Charger le fichier .npy depuis S3
@@ -75,8 +75,7 @@ parser.add_argument('--datasets', type=str, default=None)
 parser.add_argument('--use_clusters_hyp', action='store_true', help='Utiliser les embeddings hyperboliques en entrée du modèle')
 parser.add_argument('--use_clusters_spectr', action='store_true', help='Utiliser les résultats du clustering spectral en entrée du modèle')
 parser.add_argument('--use_clusters_tout', action='store_true', help='Utiliser les embeddings hyperboliques concaténés aux résultats du clustering spectral en entrée du modèle')
-
-
+parser.add_argument('--param_hyp',type=str, default=None) 
 args = parser.parse_args()
 
 columns = ['name']
@@ -127,7 +126,7 @@ for model in models:
         match True:
             case _ if args.use_clusters_hyp:
                 # Embeddings "leaves_emb" depuis S3
-                clusters = load_data_s3("leaves_emb", dataset_name)
+                clusters = load_data_s3("leaves_emb", dataset_name, args.param_hyp)
                 data.clusters = clusters
                 cluster_dim = clusters.shape[1] 
 
@@ -139,7 +138,7 @@ for model in models:
 
             case _ if args.use_clusters_tout:
                 # Concaténation des deux sources
-                clusters_hyp = load_data_s3("leaves_emb", dataset_name)
+                clusters_hyp = load_data_s3("leaves_emb", dataset_name, args.param_hyp)
                 clusters_spectr0 = np.load(f"/home/onyxia/work/GADBench/results/{dataset_name}/y_spectral.npy")
                 clusters_spectr = clusters_spectr0.reshape(-1,1)
                 if clusters_hyp.shape[0] != clusters_spectr.shape[0]:
