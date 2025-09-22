@@ -33,7 +33,7 @@ def load_data_s3(name, dataset_name, param_hyp=None):               # ###
         - Sinon → elle le télécharge depuis un bucket S3, puis le charge en mémoire.
         - Optionnellement, elle peut le mettre en cache local pour les prochaines utilisations.
     '''
-    local_path = f"/tmp/{name}_{dataset_name}{param_hyp}.npy"
+    local_path = f"/tmp/{name}_{dataset_name}_{param_hyp}.npy"
 
     if os.path.exists(local_path):
         return np.load(local_path)
@@ -49,7 +49,7 @@ def load_data_s3(name, dataset_name, param_hyp=None):               # ###
 
     # Spécifier le chemin dans le bucket
     BUCKET = "projet-clustering-ano-graphe"
-    FILE_KEY_S3 = f"albert/{name}_{dataset_name}{param_hyp}.npy"  # le chemin correct
+    FILE_KEY_S3 = f"albert/{name}_{dataset_name}_{param_hyp}.npy"  # le chemin correct
     FILE_PATH_S3 = BUCKET + "/" + FILE_KEY_S3
 
     # Charger le fichier .npy depuis S3
@@ -75,7 +75,7 @@ parser.add_argument('--datasets', type=str, default=None)
 parser.add_argument('--use_clusters_hyp', action='store_true', help='Utiliser les embeddings hyperboliques en entrée du modèle')
 parser.add_argument('--use_clusters_spectr', action='store_true', help='Utiliser les résultats du clustering spectral en entrée du modèle')
 parser.add_argument('--use_clusters_tout', action='store_true', help='Utiliser les embeddings hyperboliques concaténés aux résultats du clustering spectral en entrée du modèle')
-parser.add_argument('--param_hyp',type=str, default=None) 
+parser.add_argument('--param_hyp', type=str, default=None) 
 args = parser.parse_args()
 
 columns = ['name']
