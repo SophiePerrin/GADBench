@@ -7,31 +7,13 @@ import os
 import s3fs
 import numpy as np
 import dgl
-import networkx as nx
-import pickle
 import warnings
 import torch
-from torch import sparse
-import numpy as np
 warnings.filterwarnings("ignore")
 seed_list = list(range(3407, 10000, 10))
-import torch
-import numpy as np
-from sklearn.decomposition import PCA
 import matplotlib 
 matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
-from sklearn.cluster import SpectralClustering
-
-from sklearn.preprocessing import normalize
-from scipy.sparse.csgraph import laplacian
-from numpy.linalg import eigvalsh
-import matplotlib.pyplot as plt
-from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
-
-from joblib import Parallel, delayed
-
-
 
 #############################################
 
@@ -100,15 +82,10 @@ for name, g in graphs_modif.items():
 
 #############################################
 
-# Export des noeuds+attributs (x), des labels (y), calcul de la matrice de similarité 
-# (issue de la matrice d'adjacence A remaniée) des graphes de données pour le clustering spectral, 
-# et export de A pour utilisation par HypHC
+# Export des noeuds+attributs (x), des labels (y), et de la matrice d'adjacence A 
+# pour utilisation par HypHC
 
 #############################################
-
-
-
-
 
 
 def get_fs(bucket="projet-clustering-ano-graphe"):
@@ -141,11 +118,15 @@ def get_fs(bucket="projet-clustering-ano-graphe"):
     
     return fs
 
+#############################################
 
 # Boucle sur tous les datasets :
-# cette boucle prépare chaque graphe pour le clustering en extrayant ses features et labels,
-# en construisant sa matrice d’adjacence et sa similarité cosinus,
-# en visualisant les matrices obtenues, puis en exportant le tout vers S3.
+# cette boucle prépare chaque graphe pour le(s) clustering en extrayant ses features et labels,
+# en construisant sa matrice d’adjacence,en visualisant les matrices obtenues, 
+# puis en exportant les éléments pour HypHC vers S3
+# et en stockant ceux pour le clustering spectral en local.
+
+#############################################
 
 '''
 En détails, pour chaque dataset, la boucle fait : 
@@ -207,7 +188,14 @@ for dataset_name, g in graphs_modif.items():
         # A[d, s] = w  # si le graphe est non orienté (symétrique)
     print(f"matrice d'adjacence : {A}")
 
-   
+    # ================================
+    # 4. Sauvegarde en local des données utiles pour le clustering spectral
+    # ================================
+    # sauvegarde des matrices/features/labels
+    np.savez(f"{dataset_name}_arrays.npz", A=A, x=x, y=y)
+
+    # sauvegarde du graphe seul
+    dgl.save_graphs(f"{dataset_name}_graph.bin", [graphs_modif["{dataset_name}"]])
     
     # ================================
     # 4. Sauvegarde en S3 sur le cloud du datalab INSEE des données utiles pour HypHC

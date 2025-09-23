@@ -1,37 +1,20 @@
-# import argparse
-
-import decrire_graphes as dg
-import modif_graphes as mg
-import utils as ut
 import os
-import s3fs
-import numpy as np
-import dgl
-import networkx as nx
-import pickle
-import warnings
-import torch
-from torch import sparse
-import numpy as np
-warnings.filterwarnings("ignore")
-seed_list = list(range(3407, 10000, 10))
-import torch
-import numpy as np
-from sklearn.decomposition import PCA
-import matplotlib 
+import matplotlib
 matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
+import numpy as np
+import dgl
+import warnings
+warnings.filterwarnings("ignore")
+seed_list = list(range(3407, 10000, 10))
 from sklearn.cluster import SpectralClustering
-
 from sklearn.preprocessing import normalize
 from scipy.sparse.csgraph import laplacian
 from numpy.linalg import eigvalsh
-import matplotlib.pyplot as plt
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
-
 from joblib import Parallel, delayed
 
-# fonctions utiles pour cette partie du programme
+# fonctions utiles pour ce programme
 
 def compute_cosine_similarity_matrix_blockwise(X, block_size=1000, safety_factor=0.8, use_memmap=False, memmap_file='S.dat'):
     """
@@ -96,7 +79,37 @@ def compute_cosine_similarity_matrix_blockwise(X, block_size=1000, safety_factor
     
     return S
 
-    '''
+
+# fonction qui crée y_spectral (la sortie attendue du clustering spectral...) :
+# elle sera à remplacer par la fonction de clustering spectral (car pour l'instant,
+# elle crée simplement un vecteur aléatoire pour "remplir" y_spectral en attendant
+# qu'il soit rempli des vraies valeurs !)
+def make_random_clustering(g, k, seed=None):
+    """
+    Génère un vecteur d'affectations de clusters aléatoires pour un graphe DGL donné.
+    
+    Paramètres
+    ----------
+    g : le graphe DGL dont on veut simuler le clustering.
+    k : le nombre de clusters.
+    seed : int ou None - graine aléatoire pour la reproductibilité (optionnel).
+    
+    Retour
+    ------
+    y_random : np.ndarray de taille (num_nodes,) - vecteur d'affectations de clusters aléatoires.
+    """
+
+    if seed is not None:
+        np.random.seed(seed)
+    
+    n = g.num_nodes()
+    y_random = np.random.randint(low=0, high=k, size=n)
+
+    print(y_random.shape)   # (n,)
+    print(y_random[:20])    # aperçu des 20 premières affectations
+    return y_random
+
+'''
 import dgl
 import torch
 import numpy as np
@@ -281,19 +294,48 @@ def optimize_alpha_spectral(A, Scosine, y, alphas=np.linspace(0, 1, 11), metric=
 '''
 En détails, pour chaque dataset, la boucle fait : 
 
-4 - Calcul de la matrice de similarité cosinus Scosine entre features de nœuds : normalise les features, 
+1 - chargement des graphes et de leurs matrices d'adjacence A, des features de leurs noeuds x, 
+et des labels de ces derniers, y.
+
+2 - Calcul de la matrice de similarité cosinus Scosine entre features de nœuds : normalise les features, 
 calcule leur similarité cosinus par blocs, puis applique une transformation exponentielle pour accentuer les différences.
 
-5 - Préparation d’une matrice de similarité combinée : prévoit de combiner la matrice A 
+3 - Préparation d’une matrice de similarité combinée : prévoit de combiner la matrice A 
 et la similarité cosinus avec un hyperparamètre alpha (utilisée pour le clustering spectral, qui reste à faire).
 
 Visualisation (optionnel, non exécuté ici): génère et sauvegarde une image comparant A et la matrice de similarité cosinus.
 
 '''
 
-for dataset_name, g in graphs_modif.items():
-     # ================================
-    # 4. Création de la matrice Scosine de similarité des features des noeuds (pour le clustering spectral ici 
+
+
+datasets = ['reddit', 'weibo']
+
+graphs = {}  # Dictionnaire pour stocker les graphes
+mat = {}  # Dictionnaire pour stocker les matrices numpy
+
+# Boucle sur tous les datasets
+for dataset_name in datasets:
+    # ================================
+    # 1. chargement des graphes et de leurs matrices d'adjacence A, des features de leurs noeuds x, 
+    # et des labels de ces derniers, y.
+    # ================================
+    arrays = np.load(f"{dataset_name}_arrays.npz")
+    mat[dataset_name] = {
+        "A": arrays["A"],
+        "X": arrays["x"],  
+        "y": arrays["y"]
+    }
+    graph, _ = dgl.load_graphs(f"{dataset_name}_graph.bin")
+    graphs[dataset_name] = graph[0]
+
+    g = graphs[dataset_name]       # Graphe DGL
+    A = mat[dataset_name]["A"]     # Matrice d’adjacence numpy
+    x = mat[dataset_name]["X"]     # Features numpy
+    y = mat[dataset_name]["y"]     # Labels numpy
+
+    # ================================
+    # 2. Création de la matrice Scosine de similarité des features des noeuds (pour le clustering spectral ici 
     # - pour le clustering hyperbolique : ce sera fait dans HypHC)
     # ================================
 
@@ -318,9 +360,9 @@ for dataset_name, g in graphs_modif.items():
     Scosine = np.exp(Scosine * 10)  # accentue les différences car sinon nos Scosine sont très "plates" (tout s'y ressemble !)
 
     # ================================
-    # 5. Création de la matrice similarities, qui combine poids des arêtes et similarités entre features des noeuds,
+    # 3. Création de la matrice similarities, qui combine poids des arêtes et similarités entre features des noeuds,
     # avec un hyperparamètre alpha à optimiser.
-    # On le fait ici uniquement pour le clustering spectral (pour le clustering hyperbolique, on va juste exporter A,
+    # On le fait ici uniquement pour le clustering spectral (pour le clustering hyperbolique, on a juste exporté A,
     # et on construira similarities dans HypHC directement)
     # ================================
     
@@ -339,35 +381,7 @@ for dataset_name, g in graphs_modif.items():
         verbose=True                    # pour afficher l’avancement
         )
     '''
-    # fonction qui crée y_spectral (la sortie attendue du clustering spectral...) :
-    # elle sera à remplacer par la fonction de clustering spectral (car pour l'instant,
-    # elle crée simplement un vecteur aléatoire pour "remplir" y_spectral en attendant
-    # qu'il soit rempli des vraies valeurs !)
-    def make_random_clustering(g, k, seed=None):
-        """
-        Génère un vecteur d'affectations de clusters aléatoires pour un graphe DGL donné.
-    
-        Paramètres
-        ----------
-        g : le graphe DGL dont on veut simuler le clustering.
-        k : le nombre de clusters.
-        seed : int ou None - graine aléatoire pour la reproductibilité (optionnel).
-    
-        Retour
-        ------
-        y_random : np.ndarray de taille (num_nodes,) - vecteur d'affectations de clusters aléatoires.
-        """
-
-        if seed is not None:
-            np.random.seed(seed)
-    
-        n = g.num_nodes()
-        y_random = np.random.randint(low=0, high=k, size=n)
-
-        print(y_random.shape)   # (n,)
-        print(y_random[:20])    # aperçu des 20 premières affectations
-        return y_random
-
+   
     y_spectral = make_random_clustering(g, 5, seed=43)
     
    
