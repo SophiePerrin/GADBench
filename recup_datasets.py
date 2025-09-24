@@ -195,7 +195,7 @@ for dataset_name, g in graphs_modif.items():
     np.savez(f"{dataset_name}_arrays.npz", A=A, x=x, y=y)
 
     # sauvegarde du graphe seul
-    dgl.save_graphs(f"{dataset_name}_graph.bin", [graphs_modif["{dataset_name}"]])
+    dgl.save_graphs(f"{dataset_name}_graph.bin", [graphs_modif[dataset_name]])
     
     # ================================
     # 4. Sauvegarde en S3 sur le cloud du datalab INSEE des données utiles pour HypHC

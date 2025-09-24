@@ -307,8 +307,6 @@ Visualisation (optionnel, non exécuté ici): génère et sauvegarde une image c
 
 '''
 
-
-
 datasets = ['reddit', 'weibo']
 
 graphs = {}  # Dictionnaire pour stocker les graphes
