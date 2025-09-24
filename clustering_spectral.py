@@ -318,13 +318,17 @@ for dataset_name in datasets:
     # 1. chargement des graphes et de leurs matrices d'adjacence A, des features de leurs noeuds x, 
     # et des labels de ces derniers, y.
     # ================================
-    arrays = np.load(f"{dataset_name}_arrays.npz")
+    # Chemin pour entreposer les résultats qu'on veut pouvoir réutiliser 
+    output_dir = f"/home/onyxia/work/GADBench/results/{dataset_name}"
+    os.makedirs(output_dir, exist_ok=True)  # crée le dossier 
+
+    arrays = np.load(f"{output_dir}/{dataset_name}_arrays.npz")
     mat[dataset_name] = {
         "A": arrays["A"],
         "X": arrays["x"],  
         "y": arrays["y"]
     }
-    graph, _ = dgl.load_graphs(f"{dataset_name}_graph.bin")
+    graph, _ = dgl.load_graphs(f"{output_dir}/{dataset_name}_graph.bin")
     graphs[dataset_name] = graph[0]
 
     g = graphs[dataset_name]       # Graphe DGL
@@ -382,11 +386,6 @@ for dataset_name in datasets:
    
     y_spectral = make_random_clustering(g, 5, seed=43)
     
-   
-    # Chemin pour entreposer les résultats qu'on veut pouvoir réutiliser 
-    output_dir = f"/home/onyxia/work/GADBench/results/{dataset_name}"
-    os.makedirs(output_dir, exist_ok=True)  # crée le dossier 
-
     # Sauvegarde de y_spectral pour pouvoir le réutiliser dans benchmark.py
     np.save(f"{output_dir}/y_spectral.npy", y_spectral)
     print(f"y_spectral sauvegardé dans {output_dir}/y_spectral.npy")

@@ -191,11 +191,16 @@ for dataset_name, g in graphs_modif.items():
     # ================================
     # 4. Sauvegarde en local des données utiles pour le clustering spectral
     # ================================
+    
+    # Chemin pour entreposer les résultats qu'on veut pouvoir réutiliser 
+    output_dir = f"/home/onyxia/work/GADBench/results/{dataset_name}"
+    os.makedirs(output_dir, exist_ok=True)  # crée le dossier 
+    
     # sauvegarde des matrices/features/labels
-    np.savez(f"{dataset_name}_arrays.npz", A=A, x=x, y=y)
+    np.savez(f"{output_dir}/{dataset_name}_arrays.npz", A=A, x=x, y=y)
 
     # sauvegarde du graphe seul
-    dgl.save_graphs(f"{dataset_name}_graph.bin", [graphs_modif[dataset_name]])
+    dgl.save_graphs(f"{output_dir}/{dataset_name}_graph.bin", [graphs_modif[dataset_name]])
     
     # ================================
     # 4. Sauvegarde en S3 sur le cloud du datalab INSEE des données utiles pour HypHC
