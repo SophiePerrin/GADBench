@@ -21,6 +21,55 @@ for dataset_name in datasets:
 
     graphs[dataset_name] = g  # Stockage du graphe avec son nom
 
+    num_nodes = g.num_nodes()
+
+    # Initialisation d'une matrice (num_nodes x num_nodes) remplie de zéros
+    Ao = np.zeros((num_nodes, num_nodes))
+
+    # Récupération des arêtes (liste des paires source → destination)
+    src, dst = g.edges()
+    src = src.cpu().numpy()
+    dst = dst.cpu().numpy()
+
+    # Si les arêtes ont un attribut 'count' (poids des arêtes), on l’utilise ; sinon poids unitaire
+    if 'count' in g.edata:
+        count = g.edata['count']         # tensor shape: [N, 1]
+        count = count.squeeze()          # shape devient [N]
+        count = count.cpu().numpy()      # devient array([1., 2., ...])
+    else:
+        count = np.ones(len(src))  # poids par défaut = 1
+
+    # Remplissage de la matrice de similarités avec les poids
+    for s, d, w in zip(src, dst, count):
+        Ao[s, d] = w
+        # A[d, s] = w  # si le graphe est non orienté (symétrique)
+    print(f"matrice d'adjacence du graphe d'origine {dataset_name} : {Ao}")
+
+    if np.allclose(Ao.T, Ao):
+        print("elle est symétrique")
+    else:
+        print("elle n'est pas symétrique")
+
+    row_sums = Ao.sum(axis=1)
+    print("Row sums (first 10):", row_sums[:10])
+    print("Mean row sum:", row_sums.mean())
+
+    out_degrees = (Ao > 0).sum(axis=1)
+    print("Unique out-degrees:", np.unique(out_degrees))
+
+    diff = (Ao > Ao.T).sum()
+    print("Nb edges stronger in one direction:", diff)
+
+    vals = np.unique(Ao)
+    print(vals[:20])  # voir si c'est {0,1} ou des entiers >1
+
+    row_sums = Ao.sum(axis=1)
+    print("min,max,median,mean:", row_sums.min(), row_sums.max(), np.median(row_sums), row_sums.mean())
+
+    sym = (Ao + Ao.T) / 2
+    asym_measure = np.sum(np.abs(Ao - sym)) / np.sum(np.abs(sym))
+    print("Asymmetry ratio:", asym_measure)
+
     #dg.describe_dgl_graph(g, dataset_name, 2)
     # ================================
     # 1. chargement des graphes et de leurs matrices d'adjacence A, des features de leurs noeuds x, 
@@ -45,9 +94,9 @@ for dataset_name in datasets:
     y = mat[dataset_name]["y"]     # Labels numpy
 
     if np.allclose(A.T, A):
-        print("matrice symétrique")
+        print(f"matrice du graphe {dataset_name} modifié : symétrique")
     else:
-        print("matrice pas symétrique")
+        print(f"matrice du graphe {dataset_name} modifié : pas symétrique")
 
     # g est ton graphe DGL
     # Calcul des degrés
@@ -55,6 +104,9 @@ for dataset_name in datasets:
     degrees_in = degrees_in.numpy()  # convertir en tableau NumPy pour matplotlib
     degrees_out = g.out_degrees()  # ou g.out_degrees() pour un graphe dirigé
     degrees_out = degrees_out.numpy() 
+
+    degrees_ = gm.in_degrees() 
+    degrees_ = degrees_.numpy()
 
     # Bins : 0-10 par pas de 1, puis 10-50 par pas de 5, puis 50-5000 par pas de 100
     bins = np.concatenate([
@@ -73,7 +125,7 @@ for dataset_name in datasets:
     output_path = f"{output_dir}/{dataset_name}_degree_in_hist.png"
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"{dataset_name} : nb noeuds = {g.num_nodes()}, min degré = {degrees_in.min()}, max degré = {degrees_in.max()}")
+    print(f"{dataset_name} : nb noeuds = {g.num_nodes()}, min degré in = {degrees_in.min()}, max degré in = {degrees_in.max()}")
     print(graphs[dataset_name].num_nodes())
     print(graphs[dataset_name].num_edges())
 
@@ -86,7 +138,20 @@ for dataset_name in datasets:
     output_path = f"{output_dir}/{dataset_name}_degree_out_hist.png"
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"{dataset_name} : nb noeuds = {g.num_nodes()}, min degré = {degrees_out.min()}, max degré = {degrees_out.max()}")
+    print(f"{dataset_name} : nb noeuds = {g.num_nodes()}, min degré out = {degrees_out.min()}, max degré out = {degrees_out.max()}")
+    print(graphs[dataset_name].num_nodes())
+    print(graphs[dataset_name].num_edges())
+
+    plt.figure(figsize=(8, 5))
+    plt.hist(degrees_in, bins=bins, color='skyblue', edgecolor='black')
+    plt.title(f"Distribution des degrés des noeuds pour {dataset_name} modifié")
+    plt.xlabel("Degré")
+    plt.ylabel("Nombre de noeuds")
+    plt.grid(axis='y', alpha=0.75)
+    output_path = f"{output_dir}/{dataset_name}_degree_hist.png"
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"{dataset_name} modifié : nb noeuds = {g.num_nodes()}, min degré = {degrees_in.min()}, max degré = {degrees_in.max()}")
     print(graphs[dataset_name].num_nodes())
     print(graphs[dataset_name].num_edges())
 
