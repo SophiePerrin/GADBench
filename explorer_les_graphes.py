@@ -70,7 +70,7 @@ for dataset_name in datasets:
     asym_measure = np.sum(np.abs(Ao - sym)) / np.sum(np.abs(sym))
     print("Asymmetry ratio:", asym_measure)
 
-    #dg.describe_dgl_graph(g, dataset_name, 2)
+    dg.describe_dgl_graph(g, dataset_name, 2)
     # ================================
     # 1. chargement des graphes et de leurs matrices d'adjacence A, des features de leurs noeuds x, 
     # et des labels de ces derniers, y.
