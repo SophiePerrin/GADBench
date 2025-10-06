@@ -249,3 +249,77 @@ def describe_dgl_graph(g, name, max_examples=5):
         print(f"⚠️ Le graphe est orienté : {len(asym_edges)} arêtes n’ont pas leur inverse.")
     analyser_aretes(g)
     analyze_degres(g)
+
+
+
+######################################################################
+# Script d'analyse topologique des anomalies 
+def analyze_anomaly_grouping_dgl(g, labels):
+    """
+    Analyse la structure des anomalies dans un graphe DGL.
+    
+    Args:
+        g: DGLGraph
+        labels: Tensor 1D de taille (num_nodes,), contenant 0 (normal) ou 1 (anomalie)
+    """
+    import dgl
+    import torch
+    import numpy as np
+
+    n_nodes = g.num_nodes()
+    n_edges = g.num_edges()
+    n_anom = (labels == 1).sum().item()
+    print(f"Total de nœuds : {n_nodes:,}")
+    print(f"Total d'arêtes : {n_edges:,}")
+    print(f"Nœuds anormaux : {n_anom:,} ({100 * n_anom / n_nodes:.3f}%)")
+
+    # --- 1. Trouver les voisins anormaux pour chaque nœud anormal
+    src, dst = g.edges()
+    src, dst = src.cpu(), dst.cpu()
+    labels = labels.cpu()
+
+    # Créer un masque des anomalies
+    anom_mask = labels == 1
+    anom_nodes = torch.nonzero(anom_mask, as_tuple=True)[0]
+
+    # Calculer le nombre de voisins anormaux pour chaque nœud anormal
+    # (on utilise DGL pour l'efficacité)
+    has_anom_neighbor = 0
+    for node in anom_nodes:
+        neighbors = g.successors(node)
+        if torch.any(anom_mask[neighbors]):
+            has_anom_neighbor += 1
+
+    prop_has_anom_neighbor = has_anom_neighbor / n_anom if n_anom > 0 else 0
+    print(f"Proportion d'anomalies ayant ≥1 voisin anomal : {prop_has_anom_neighbor:.3f}")
+
+    # --- 2. Sous-graphe induit par les anomalies
+    sub_g = g.subgraph(anom_nodes)
+    num_nodes_sub = sub_g.num_nodes()
+    num_edges_sub = sub_g.num_edges()
+    density_sub = num_edges_sub / (num_nodes_sub * (num_nodes_sub - 1)) if num_nodes_sub > 1 else 0
+    density_global = n_edges / (n_nodes * (n_nodes - 1))
+
+    print(f"Densité globale du graphe : {density_global:.6e}")
+    print(f"Densité interne (sous-graphe anomalies) : {density_sub:.6e}")
+
+    # --- 3. Taille des composantes connexes (sur le sous-graphe anomalies)
+    # DGL ne fournit pas directement cette fonction, donc on utilise NetworkX ici, mais sur un petit graphe
+    import networkx as nx
+    nx_sub = sub_g.to_networkx().to_undirected()
+    comp_sizes = [len(c) for c in nx.connected_components(nx_sub)]
+    if comp_sizes:
+        print(f"Nombre de composantes d'anomalies : {len(comp_sizes)}")
+        print(f"Taille moyenne des composantes : {np.mean(comp_sizes):.2f}")
+        print(f"Taille médiane : {np.median(comp_sizes):.2f}")
+        print(f"Top 10 tailles : {sorted(comp_sizes, reverse=True)[:10]}")
+    else:
+        print("Aucune composante connectée détectée (aucune arête entre anomalies).")
+
+    # --- 4. Interprétation rapide
+    if density_sub > 5 * density_global:
+        print("→ Les anomalies semblent former des sous-graphes denses (group anomalies).")
+    elif density_sub > 1.5 * density_global:
+        print("→ Les anomalies sont légèrement plus connectées entre elles que la moyenne.")
+    else:
+        print("→ Les anomalies paraissent dispersées ou isolées (point anomalies).")
