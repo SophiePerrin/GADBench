@@ -304,13 +304,16 @@ def analyze_anomaly_grouping_dgl(g, labels=None):
     anom_mask = labels == 1
     anom_nodes = torch.nonzero(anom_mask, as_tuple=True)[0]
 
-    has_anom_neighbor = 0
+   
+    isolated_among_anom = 0
+    anom_set = set(anom_nodes.cpu().numpy().tolist())
     for node in anom_nodes:
-        neighbors = g.successors(node)
-        if torch.any(anom_mask[neighbors]):
-            has_anom_neighbor += 1
+        neigh = set(g.successors(node).cpu().numpy().tolist()) | set(g.predecessors(node).cpu().numpy().tolist())
+        neigh.discard(int(node))
+        if len(neigh & anom_set) == 0:
+            isolated_among_anom += 1
 
-    prop_has_anom_neighbor = has_anom_neighbor / n_anom if n_anom > 0 else 0
+    prop_has_anom_neighbor = 1 - isolated_among_anom / n_anom
     print(f"Proportion d'anomalies ayant ≥1 voisin anomal : {prop_has_anom_neighbor:.3f}")
 
     # --- 4. Sous-graphe des anomalies
@@ -342,3 +345,102 @@ def analyze_anomaly_grouping_dgl(g, labels=None):
         print("→ Les anomalies sont légèrement plus connectées entre elles que la moyenne.")
     else:
         print("→ Les anomalies paraissent dispersées ou isolées (point anomalies).")
+
+
+
+##################################################################################
+# étude détaillée surtout du gros cluster d'anomalies de weibo
+def detailed_anomaly_cluster_analysis_full(g, labels=None):
+    """
+    Analyse détaillée du plus gros cluster d'anomalies dans un graphe DGL.
+
+    Args:
+        g: DGLGraph
+        labels: Tensor ou liste d'entiers (0 = normal, 1 = anomalie).
+                Si None, utilise g.ndata['label'].
+    """
+    import torch
+    import networkx as nx
+    import numpy as np
+
+    # --- 0. Récupérer labels
+    if labels is None:
+        labels = g.ndata.get("label", g.ndata.get("labels"))
+        if labels is None:
+            raise ValueError("Aucun label fourni, et g.ndata['label']/'labels' inexistant.")
+
+    if not torch.is_tensor(labels):
+        labels = torch.tensor(labels)
+    labels = labels.flatten().long().cpu()
+
+    # --- 1. Identifier les anomalies
+    anom_mask = labels == 1
+    anom_nodes = torch.nonzero(anom_mask, as_tuple=True)[0].cpu().numpy().tolist()
+    n_anom = len(anom_nodes)
+    print(f"Nombre total d’anomalies : {n_anom}")
+
+    if n_anom == 0:
+        print("Aucune anomalie détectée.")
+        return
+
+    # --- 2. Sous-graphe des anomalies
+    sub_g = g.subgraph(anom_nodes)
+    nx_sub = sub_g.to_networkx().to_undirected()
+
+    # --- 3. Transformer en simple Graph pour NetworkX
+    nx_simple = nx.Graph()
+    nx_simple.add_edges_from(nx_sub.edges())
+
+    # --- 4. Trouver le plus grand cluster
+    components = list(nx.connected_components(nx_simple))
+    components_sizes = [len(c) for c in components]
+    largest_comp_idx = np.argmax(components_sizes)
+    largest_comp_nodes = components[largest_comp_idx]
+    nx_largest = nx_simple.subgraph(largest_comp_nodes)
+
+    print(f"Taille du plus grand cluster d’anomalies : {nx_largest.number_of_nodes()}")
+
+    # --- 5. Degrés et distribution
+    degrees = np.array([d for n, d in nx_largest.degree()])
+    print("Distribution des degrés :",
+          f"min {degrees.min()}, 25% {np.percentile(degrees,25)}, median {np.median(degrees)},",
+          f"75% {np.percentile(degrees,75)}, max {degrees.max()}")
+
+    # --- 6. Coefficient de clustering
+    clustering_coeffs = nx.clustering(nx_largest)
+    clustering_values = list(clustering_coeffs.values())
+    print(f"Clustering coefficient : mean {np.mean(clustering_values):.3f}, median {np.median(clustering_values):.3f}")
+
+    # --- 7. Densité
+    density = nx.density(nx_largest)
+    print(f"Densité du plus grand cluster : {density:.6f}")
+
+    # --- 8. Centralité
+    degree_centrality = nx.degree_centrality(nx_largest)
+    closeness_centrality = nx.closeness_centrality(nx_largest)
+    betweenness_centrality = nx.betweenness_centrality(nx_largest)
+    print(f"Centralité moyenne (degré) : {np.mean(list(degree_centrality.values())):.3f}")
+    print(f"Centralité moyenne (closeness) : {np.mean(list(closeness_centrality.values())):.3f}")
+    print(f"Centralité moyenne (betweenness) : {np.mean(list(betweenness_centrality.values())):.3f}")
+
+    # --- 9. Composantes secondaires
+    if len(components) > 1:
+        secondary_sizes = sorted([len(c) for i, c in enumerate(components) if i != largest_comp_idx], reverse=True)
+        print(f"Taille des 5 plus grosses composantes secondaires : {secondary_sizes[:5]}")
+
+    # --- 10. Exemples de nœuds
+    print("Exemples de nœuds dans le cluster (max 20) :", list(largest_comp_nodes)[:20])
+
+    # --- 11. Histogrammes simples
+    try:
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(10,4))
+        plt.subplot(1,2,1)
+        plt.hist(degrees, bins=10, color='skyblue')
+        plt.title("Distribution des degrés")
+        plt.subplot(1,2,2)
+        plt.hist(clustering_values, bins=10, color='salmon')
+        plt.title("Distribution des clustering coeffs")
+        plt.show()
+    except ImportError:
+        print("Matplotlib non disponible : pas de graphiques.")
