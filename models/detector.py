@@ -68,7 +68,6 @@ class BaseGNNDetector(BaseDetector):
         self.model = gnn(**model_config).to(train_config['device'])
         self.clusters = self.data.clusters                                # ###
 
-
     def train(self):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_config['lr'])
         train_labels, val_labels, test_labels = self.labels[self.train_mask], self.labels[self.val_mask], self.labels[self.test_mask]
@@ -86,12 +85,12 @@ class BaseGNNDetector(BaseDetector):
             # print(f"GPU Memory Usage: {torch.cuda.memory_reserved() / (1024 ** 3)} GB")
             if self.model_config['drop_rate'] > 0 or self.train_config['inductive']:
                 self.model.eval()
-                logits = self.model(self.val_graph)
+                logits = self.model(self.val_graph, self.clusters)           # ### # ajout clusters ici aussi)
             probs = logits.softmax(1)[:, 1]
             val_score = self.eval(val_labels, probs[self.val_graph.ndata['val_mask']])
             if val_score[self.train_config['metric']] > self.best_score:
                 if self.train_config['inductive']:
-                    logits = self.model(self.source_graph)
+                    logits = self.model(self.source_graph, self.clusters)    # ### # compatibilité inductive
                     probs = logits.softmax(1)[:, 1]
                 self.patience_knt = 0
                 self.best_score = val_score[self.train_config['metric']]
