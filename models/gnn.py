@@ -152,7 +152,7 @@ def calculate_theta(d):
 
 class BWGNN(nn.Module):
     def __init__(self, in_feats, h_feats=32, num_classes=2, num_layers=2, mlp_layers=2, dropout_rate=0,
-                 activation='ReLU', **kwargs):
+                 activation='ReLU', cluster_dropout=0, **kwargs):                   # ### # ajout cluster_dropout
         super(BWGNN, self).__init__()
         self.thetas = calculate_theta(d=num_layers)
         self.conv = []
@@ -164,6 +164,7 @@ class BWGNN(nn.Module):
         self.cluster_dim = kwargs.get("cluster_dim", 0)         # ###
         self.concat_dim = h_feats + self.cluster_dim
         self.mlp_input_dim = self.concat_dim * len(self.conv)   # ###
+        self.cluster_dropout = nn.Dropout(cluster_dropout) if cluster_dropout > 0 else nn.Identity()  # ### #
 
         self.mlp = MLP(self.mlp_input_dim, h_feats, num_classes, mlp_layers, dropout_rate) # ###
         
@@ -182,11 +183,14 @@ class BWGNN(nn.Module):
         if clusters is None:
             clusters = torch.zeros((h.shape[0], self.cluster_dim), device=h.device, dtype=h.dtype)
         else:
-        # Conversion de clusters en tenseur, avec type et device cohérents # ###
+            # Conversion de clusters en tenseur, avec type et device cohérents # ###
             if isinstance(clusters, np.ndarray):
                 clusters = torch.from_numpy(clusters)
         clusters = clusters.to(h.device).to(h.dtype)
+        if self.cluster_dim > 0:
+            clusters = clusters / (clusters.norm(p=2, dim=1, keepdim=True) + 1e-6)  # ### # normalisation ajoutée
 
+        clusters = self.cluster_dropout(clusters)  # ### # dropout sur clusters ajouté
 
         # Vérification de la compatibilité (même nombre de nœuds)
         assert clusters.shape[0] == h.shape[0], "Dimension 0 de clusters doit correspondre au nombre de nœuds"
