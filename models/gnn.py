@@ -208,6 +208,65 @@ class BWGNN(nn.Module):
         return h
 
 
+class BWGNNpostconv(nn.Module):
+    def __init__(self, in_feats, h_feats=32, num_classes=2, num_layers=2, mlp_layers=2, dropout_rate=0,
+                 activation='ReLU', cluster_dropout=0, **kwargs):                   # ### # ajout cluster_dropout
+        
+        super(BWGNNpostconv, self).__init__()
+        self.thetas = calculate_theta(d=num_layers)
+        self.conv = []
+        for i in range(len(self.thetas)):
+            self.conv.append(PolyConv(self.thetas[i]))
+        self.linear = nn.Linear(in_feats, h_feats)
+        self.linear2 = nn.Linear(h_feats, h_feats)
+   
+        self.cluster_dim = kwargs.get("cluster_dim", 0)         # ###
+        total_in_dim = h_feats*len(self.conv) + self.cluster_dim
+        self.cluster_dropout = nn.Dropout(cluster_dropout) if cluster_dropout > 0 else nn.Identity()  # ### #
+
+        self.mlp = MLP(total_in_dim, h_feats, num_classes, mlp_layers, dropout_rate) # ###
+        
+        # self.mlp = MLP(h0.shape[1]*len(self.conv), h_feats, num_classes, mlp_layers, dropout_rate)
+        self.act = getattr(nn, activation)()
+        self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity()
+
+    def forward(self, graph, clusters=None):       # ###
+        in_feat = graph.ndata['feature']
+        h = self.linear(in_feat)
+        h = self.act(h)
+        h = self.linear2(h)
+        h = self.act(h)
+
+        h_final = torch.zeros([len(in_feat), 0], device=h.device)
+
+        for conv in self.conv:
+            h0 = conv(graph, h)
+            h_final = torch.cat([h_final, h0], -1)
+        h_final = self.dropout(h_final)
+
+        # Gestion de clusters : tenseur ou None
+        if clusters is None:
+            clusters = torch.zeros((h.shape[0], self.cluster_dim), device=h.device, dtype=h.dtype)
+        else:
+            # Conversion de clusters en tenseur, avec type et device cohérents # ###
+            if isinstance(clusters, np.ndarray):
+                clusters = torch.from_numpy(clusters)
+        clusters = clusters.to(h.device).to(h.dtype)
+        if self.cluster_dim > 0:
+            clusters = clusters / (clusters.norm(p=2, dim=1, keepdim=True) + 1e-6)  # ### # normalisation ajoutée
+
+        clusters = self.cluster_dropout(clusters)  # ### # dropout sur clusters ajouté
+
+        # Vérification de la compatibilité (même nombre de nœuds)
+        assert clusters.shape[0] == h_final.shape[0], "Dimension 0 de clusters doit correspondre au nombre de nœuds"
+
+        # Concaténation des features classiques et hyperboliques
+        h_final = torch.cat((h_final, clusters), dim=1)                               # ###
+
+        h = self.mlp(h_final, False)
+        return h
+
+
 class GCN(nn.Module):
     def __init__(self, in_feats, h_feats=32, num_classes=2, num_layers=2, mlp_layers=1, dropout_rate=0,
                  activation='ReLU', **kwargs):
