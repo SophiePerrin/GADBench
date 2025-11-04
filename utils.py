@@ -50,6 +50,9 @@ model_detector_dict = {
     'PCGNN': PCGNNDetector,
     'DCI': DCIDetector,
 
+    # Ajout
+    'BWGNNpostconv':BaseGNNDetector,
+
     # Heterogeneous GNNs
     'RGCN': HeteroGNNDetector,
     'HGT': HeteroGNNDetector,
