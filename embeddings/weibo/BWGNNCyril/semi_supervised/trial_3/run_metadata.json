@@ -1,0 +1,9 @@
+{
+  "dataset": "weibo",
+  "model": "BWGNNCyril",
+  "semi_supervised": true,
+  "inductive": false,
+  "trial": 3,
+  "seed": 3437,
+  "timestamp": "20251105-165830"
+}
