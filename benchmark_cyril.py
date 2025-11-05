@@ -88,19 +88,30 @@ for model in models:
             ########
             detector = model_detector_dict[model](train_config, model_config, data)
 
+            # envoie les features et le graphe sur le même device
+            graph = data.graph.to(detector.model.linear.weight.device)
+            
             # ✅ Forward factice pour initialiser le clustering spectral et caches internes
             with torch.no_grad():
-                detector(
-                    data.graph,
-                    training=False,            # on ne fait pas de backward ici
-                    save_embeddings=args.save_embeddings,
-                    node_ids=None)
+                detector.model.forward(
+                    graph,
+                    training=False,
+                    save_embeddings=True, #args.save_embeddings,
+                    node_ids=None
+                )
             st = time.time()
             print(detector.model)
             ########################################
             
             # Configuration des exports d'embeddings
             if args.save_embeddings:
+            ##########################################    
+                embeddings = detector.model.forward(
+                    graph,
+                    training=False,
+                    save_embeddings=True
+                )
+
                 # Créer le dossier spécifique au dataset/modèle/trial
                 embed_dir = os.path.join(
                     args.embeddings_dir,
@@ -110,19 +121,16 @@ for model in models:
                     f"trial_{t}"
                 )
                 os.makedirs(embed_dir, exist_ok=True)
-    
+
+                # puis tu peux sauvegarder les embeddings
+                embeddings = detector.model.export_embeddings(embed_dir)
+              
                 # Ajouter les informations d'export au détecteur
                 detector.embeddings_config = {
                     'save_embeddings': True,
                     'output_dir': embed_dir,
                 }
-                
-                embeddings = detector.export_embeddings(
-                    embed_dir,
-                    node_ids=None,
-                    split_type="all"
-                    )
-                
+                              
                 # Sauvegarder les métadonnées du run
                 import json
                 metadata = {
