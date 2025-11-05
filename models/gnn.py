@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import dgl.function as fn
 import sympy
 import scipy
+from sklearn.cluster import KMeans
 import dgl.nn.pytorch.conv as dglnn
 import dgl
 from torch import nn
@@ -10,7 +11,7 @@ from scipy.special import comb
 import math
 import copy
 import numpy as np
-
+from tqdm import tqdm
 
 class PolyConv(nn.Module):
     def __init__(self, theta):
@@ -265,6 +266,416 @@ class BWGNNpostconv(nn.Module):
 
         h = self.mlp(h_final, False)
         return h
+
+
+class BWGNNCyril(nn.Module):
+    def __init__(self, in_feats, h_feats=32, num_classes=2, num_layers=2, mlp_layers=2, dropout_rate=0,
+                 activation='ReLU', num_clusters=8, **kwargs):
+        super(BWGNN, self).__init__()
+        self.thetas = calculate_theta(d=num_layers)
+        self.conv = []
+        for i in range(len(self.thetas)):
+            self.conv.append(PolyConv(self.thetas[i]))
+        self.linear = nn.Linear(in_feats, h_feats)
+        self.linear2 = nn.Linear(h_feats, h_feats)
+        self.act = getattr(nn, activation)()
+        self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity()
+        
+        # Paramètres spectraux pour BWGNN original
+        B = len(self.conv)
+        d = B - 1
+        ref_param = self.linear.weight
+        i = torch.arange(1, B+1, device=ref_param.device, dtype=ref_param.dtype)
+        den = torch.tensor(d+2, device=i.device, dtype=i.dtype)
+        c = 2.0*i/den
+        self.register_buffer("c", c)
+        self.lambda0 = 1.2
+        
+        # Paramètres pour le clustering spectral
+        self.num_clusters = num_clusters
+        # Cache pour stocker les résultats du clustering (recalculés périodiquement)
+        self.register_buffer("cached_cluster_labels", None)
+        self.register_buffer("cached_spectral_embed", None)
+        
+        # Paramètres pour l'analyse locale
+        self.register_buffer("degree_bands", torch.tensor([0.2, 0.4, 0.6, 0.8]))  # Percentiles pour bandes de degrés
+        
+        # calcul dimensions pour MLP 
+        self.B = B
+        self.spectral_features = 2    # SC et HFR
+        self.structure_features = 2    # degré normalisé + densité locale
+        self.cluster_features = 4      # internality + conductance + zscore + BER
+        self.energy_features = B       # déviations énergétiques par bande
+        
+        total_features = (h_feats * B +         # features spectrales filtrées de base du bwgnn
+                         self.spectral_features +  # SC et HFR
+                         self.structure_features +  # features de structure 
+                         self.cluster_features +   # features cluster-aware 
+                         self.energy_features)     # déviations énergétiques
+                         
+        print(f"Initializing MLP with input size: {total_features}")  
+        self.mlp = MLP(total_features, h_feats, num_classes, mlp_layers, dropout_rate)
+        
+        # Cache pour les HF locaux
+        self.register_buffer("cached_local_hf", None)
+
+
+
+    def spectral_clustering(self, graph, num_clusters=8):
+        """
+        Calcule un clustering spectral à partir du graphe en utilisant une approche sparse
+        Args:
+            graph: Graphe DGL
+            num_clusters: Nombre de clusters souhaités
+        Returns:
+            cluster_labels: Labels des clusters [N]
+            U: Matrice des vecteurs propres [N, K]
+        """
+        device = next(self.parameters()).device
+        N = graph.num_nodes()
+        
+        # Calcul du Laplacien normalisé de manière sparse avec DGL
+        degs = graph.in_degrees().float().clamp(min=1e-12)
+        inv_sqrt_degs = torch.pow(degs, -0.5)
+        
+        # Normalisation des noeuds
+        graph.ndata['inv_sqrt_deg'] = inv_sqrt_degs
+        
+        # Power iteration method pour approximer les vecteurs propres
+        num_iters = 5
+        U = torch.randn(N, num_clusters, device=device)
+        U = U - U.mean(dim=0, keepdim=True)
+        U = U / torch.norm(U, dim=0, keepdim=True)
+        
+        # Itérations de puissance pour approximer les vecteurs propres
+        for _ in range(num_iters):
+            with graph.local_scope():
+                # D^(-1/2) @ U
+                graph.ndata['h'] = U * graph.ndata['inv_sqrt_deg'].unsqueeze(1)
+                # A @ (D^(-1/2) @ U)
+                graph.update_all(fn.copy_u('h', 'm'), fn.sum('m', 'h'))
+                # D^(-1/2) @ (A @ (D^(-1/2) @ U))
+                U_new = graph.ndata.pop('h') * graph.ndata['inv_sqrt_deg'].unsqueeze(1)
+                # I - D^(-1/2) @ A @ D^(-1/2) @ U
+                U = U - U_new
+                # Orthogonalisation de Gram-Schmidt
+                for i in range(U.shape[1]):
+                    q = U[:, i:i+1]
+                    if i > 0:
+                        q = q - (U[:, :i] @ (U[:, :i].t() @ q))
+                    U[:, i:i+1] = q / (q.norm() + 1e-8)
+        
+        # K-means clustering sur les vecteurs propres
+        U = U.cpu().numpy()
+        kmeans = KMeans(n_clusters=num_clusters, n_init=10, random_state=42)
+        cluster_labels = kmeans.fit_predict(U)
+        
+        # Conversion en tenseur + gestion device
+        cluster_labels = torch.from_numpy(cluster_labels).to(device).long()  # Assure le type long
+        U = torch.from_numpy(U).to(device).float()
+        
+        # Vérification et correction des labels
+        if cluster_labels.min() < 0 or cluster_labels.max() >= num_clusters:
+            # Réindexer les labels si nécessaire
+            unique_labels = torch.unique(cluster_labels)
+            label_map = {old_label.item(): new_label for new_label, old_label in enumerate(unique_labels)}
+            cluster_labels = torch.tensor([label_map[label.item()] for label in cluster_labels],
+                                       device=device, dtype=torch.long)
+        
+        return cluster_labels, U
+
+        # Décomposition spectrale
+        eigvals, eigvecs = torch.linalg.eigh(L_sym)
+        U = eigvecs[:, 1:num_clusters + 1]  # on saute le vecteur propre trivial
+
+        # Clustering k-means sur les vecteurs propres
+        kmeans = KMeans(n_clusters=num_clusters, n_init=10, random_state=42)
+        cluster_labels = kmeans.fit_predict(U.cpu().numpy())
+        return torch.from_numpy(cluster_labels).to(device), U
+
+    def compute_cluster_features(self, graph, cluster_labels, E=None):
+        """
+        Calcule des features cluster-aware optimisées pour GAD
+        Args:
+            graph: Graphe DGL
+            cluster_labels: Labels des clusters [N]
+            E: Tensor des énergies spectrales par bande [N, B] (optionnel)
+        Returns:
+            cluster_feats: Features de clustering optimisées [N, 4]
+        """
+        device = next(self.parameters()).device
+        N = graph.num_nodes()
+        eps = 1e-8
+        
+        # S'assurer que cluster_labels est un tenseur d'entiers long
+        cluster_labels = cluster_labels.long()
+        K = cluster_labels.max().item() + 1
+        
+        with graph.local_scope():
+            # Calcul des degrés avec DGL
+            degs = graph.in_degrees().float()
+            graph.ndata['cluster'] = cluster_labels
+            
+            # 1. Calcul efficace des degrés intra/inter cluster
+            # Marquer les arêtes intra-cluster
+            graph.apply_edges(lambda edges: {'intra': (edges.src['cluster'] == edges.dst['cluster']).float()})
+            
+            # Calculer les degrés intra-cluster
+            graph.edata['intra_edge'] = graph.edata['intra']
+            graph.update_all(
+                fn.copy_e('intra_edge', 'm'),
+                fn.sum('m', 'degs_in')
+            )
+            degs_in = graph.ndata['degs_in']
+            degs_out = degs - degs_in
+            
+            # 2. Internality ratio: deg_in / (deg + eps)
+            internality_ratio = degs_in / (degs + eps)
+            
+            # 3. Conductance locale: deg_out / (deg + eps)
+            conductance = degs_out / (degs + eps)
+            
+            # 4. Z-score de degré dans le cluster
+            cluster_deg_means = torch.zeros(K, device=device)
+            cluster_deg_sqsums = torch.zeros(K, device=device)
+            cluster_sizes = torch.zeros(K, device=device)
+        
+        # Calcul des statistiques par cluster
+        cluster_sizes.scatter_add_(0, cluster_labels, torch.ones_like(cluster_labels, dtype=torch.float))
+        cluster_deg_means.scatter_add_(0, cluster_labels, degs_in)
+        cluster_deg_sqsums.scatter_add_(0, cluster_labels, degs_in * degs_in)
+        
+        # Moyennes et écarts-types par cluster
+        cluster_deg_means = cluster_deg_means / (cluster_sizes + eps)
+        cluster_deg_vars = (cluster_deg_sqsums / (cluster_sizes + eps)) - (cluster_deg_means * cluster_deg_means)
+        cluster_deg_stds = torch.sqrt(cluster_deg_vars + eps)
+        
+        # Z-scores des degrés
+        deg_zscores = (degs_in - cluster_deg_means[cluster_labels]) / (cluster_deg_stds[cluster_labels] + eps)
+        
+        # 5. ΔBER_to_cluster (si E est fourni)
+        if E is not None:
+            # Normalisation par bande pour obtenir les probabilités
+            p_i = E / (E.sum(dim=1, keepdim=True) + eps)
+            
+            # Calcul des moyennes de cluster
+            p_c = torch.zeros(K, E.shape[1], device=device)
+            for b in range(E.shape[1]):
+                p_c[:, b].scatter_add_(0, cluster_labels, E[:, b])
+            p_c = p_c / (cluster_sizes.unsqueeze(1) + eps)
+            p_c = p_c / (p_c.sum(dim=1, keepdim=True) + eps)
+            
+            # Écart L1 au profil moyen du cluster
+            ber_diff = torch.abs(p_i - p_c[cluster_labels]).sum(dim=1)
+        else:
+            ber_diff = torch.zeros_like(degs)
+        
+        # Combine les features optimisées
+        cluster_feats = torch.stack([
+            internality_ratio,      # ratio d'internalité
+            conductance,           # conductance locale
+            deg_zscores,          # z-score de degré intra-cluster
+            ber_diff              # écart spectral au cluster
+        ], dim=1)
+        
+        return cluster_feats
+
+    def compute_structure_features(self, h, graph):
+        """
+        Calcule des features structurelles optimisées
+        Args:
+            h: Features des noeuds
+            graph: Graphe DGL
+        Returns:
+            structure_feats: Tensor de features structurelles [N, 2]
+        """
+        device = h.device
+        N = graph.num_nodes()
+        eps = 1e-8
+        
+        # 1. Calcul des degrés
+        degrees = graph.in_degrees().float().to(device)
+        
+        # 2. Densité locale de l'egonet (calcul efficace)
+        with graph.local_scope():
+            # Compte les arêtes entre voisins pour chaque nœud
+            graph.ndata['v'] = torch.ones(N, device=device)  # marqueur pour compter
+            
+            # Pour chaque nœud, marque ses voisins
+            graph.update_all(
+                fn.copy_u('v', 'm'),
+                fn.sum('m', 'n_nbrs')  # nombre de voisins
+            )
+            n_nbrs = graph.ndata['n_nbrs']
+            
+            # Calcul des arêtes entre voisins
+            graph.apply_edges(lambda edges: {'same_nbr': edges.src['n_nbrs'] * edges.dst['n_nbrs']})
+            graph.update_all(
+                fn.copy_e('same_nbr', 'm'),
+                fn.sum('m', 'edge_count')
+            )
+            edge_count = graph.ndata.pop('edge_count')
+            
+            # Nombre maximal possible d'arêtes dans l'egonet
+            max_possible = n_nbrs * (n_nbrs - 1)
+            local_density = edge_count / (max_possible + eps)
+        
+        # Features finales optimisées
+        structure_feats = torch.stack([
+            degrees / (degrees.mean() + eps),  # Degré normalisé
+            local_density                      # Densité locale de l'egonet
+        ], dim=1)
+        
+        return structure_feats
+
+    def export_embeddings(self, output_dir, node_ids=None, split_type="all"):
+        """
+        Exporte les embeddings calculés
+        Args:
+            output_dir: Chemin du dossier où sauvegarder les embeddings
+            node_ids: IDs des noeuds dans l'ordre de GADBench (pour garantir l'alignement)
+            split_type: "train", "val", "test" ou "all" pour indiquer quel split on exporte
+        """
+        import os
+        import numpy as np
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            
+        # Conversion en numpy et alignement si nécessaire
+        def process_features(features, name):
+            features_np = features.cpu().numpy()
+            if node_ids is not None:
+                features_np = features_np[node_ids]  # Réaligne selon les IDs GADBench
+            return features_np
+            
+        # Sauvegarde des embeddings combinés
+        if hasattr(self, 'last_h_final'):
+            features = process_features(self.last_h_final, 'combined')
+            output_file = os.path.join(output_dir, f'embeddings_{split_type}.npy')
+            np.save(output_file, features)
+            
+            # Affichage des informations
+            print(f"\nEmbeddings sauvegardés dans: {output_file}")
+            print(f"Dimensions: {features.shape}")
+            print(f"Structure des features:")
+            print(f"- Spectrales filtrées: {self.B * self.linear2.out_features} dimensions")
+            print(f"- SC et HFR: 2 dimensions")
+            print(f"- Structure locale: 2 dimensions (degré norm., densité locale)")
+            print(f"- Cluster-aware: 4 dimensions (internality, conductance, zscore, BER)")
+            print(f"- Déviations énergétiques: {self.B} dimensions")
+            
+            if len(features) > 1:
+                print("\nPremiers embeddings (2 exemples):")
+                print(features[:2])
+            
+            return features  # Retourne les features pour usage ultérieur
+
+    def forward(self, graph, training=False, save_embeddings=False, node_ids=None):
+        """
+        Args:
+            graph: Le graphe d'entrée
+            training: Si True, on est en phase d'entraînement
+            save_embeddings: Si True, garde les embeddings en mémoire pour export
+            node_ids: IDs des noeuds pour aligner avec GADBench (optionnel)
+        """
+        #2 premières couches
+        in_feat = graph.ndata['feature']
+        h = self.linear(in_feat)
+        h = self.act(h)
+        h = self.linear2(h)
+        h = self.act(h)
+        
+        # filtrage spectral par bandes
+        branch_outs = []
+        for conv in self.conv:
+            branch_outs.append(conv(graph, h))
+        
+        h_spectral = torch.cat(branch_outs, dim=-1)  # [N, h_feats*B]
+        h_spectral = self.dropout(h_spectral)
+        
+        # spec_features
+        E = torch.stack([(o ** 2).sum(dim=1) for o in branch_outs], dim=1)  # [N, B]
+        E_sum = (E.sum(dim=1, keepdim=True) + 1e-12)  # [N,1]
+        
+        SC = (E @ self.c) / E_sum.squeeze(1)  # [N]
+        HFR = (E @ (self.c >= self.lambda0).float()) / E_sum.squeeze(1)  # [N]
+        spec_stats = torch.stack([SC, HFR], dim=1)  # [N, 2]
+        
+        
+        structure_feats = self.compute_structure_features(h, graph)
+        
+        #  features issues du clustering spectral
+        if self.training or self.cached_cluster_labels is None:
+            with torch.no_grad():  # Pas besoin de gradient pour le clustering
+                # Recalcul du clustering pendant l'entraînement ou si pas encore calculé
+                cluster_labels, U = self.spectral_clustering(graph, self.num_clusters)
+                self.cached_cluster_labels = cluster_labels
+                self.cached_spectral_embed = U
+        else:
+            cluster_labels = self.cached_cluster_labels
+            U = self.cached_spectral_embed
+
+        cluster_feats = self.compute_cluster_features(graph, cluster_labels, E)
+        
+        with torch.no_grad(): 
+            K = self.num_clusters
+            N = E.shape[0]
+            B = E.shape[1]
+            
+            # Calcul des moyennes par cluster
+            cluster_sums = torch.zeros(K, B, device=E.device)
+            cluster_counts = torch.zeros(K, device=E.device)
+            
+            cluster_counts.scatter_add_(0, cluster_labels, torch.ones_like(cluster_labels, dtype=torch.float))
+            for b in range(B):
+                cluster_sums[:, b].scatter_add_(0, cluster_labels, E[:, b])
+            
+            # Éviter division par zéro
+            safe_counts = cluster_counts.clamp(min=1).unsqueeze(1)
+            cluster_means = cluster_sums / safe_counts
+            
+            # Calcul des variances par cluster
+            cluster_vars = torch.zeros(K, B, device=E.device)
+            squared_diff = (E - cluster_means[cluster_labels])
+            squared_diff = squared_diff * squared_diff
+            for b in range(B):
+                cluster_vars[:, b].scatter_add_(0, cluster_labels, squared_diff[:, b])
+            
+            cluster_vars = cluster_vars / safe_counts + 1e-8
+            
+            # Calcul des déviations normalisées
+            E_deviations = (E - cluster_means[cluster_labels]) / torch.sqrt(cluster_vars[cluster_labels])
+        
+        # concaténation
+        h_final = torch.cat([
+            h_spectral,      # Features spectrales filtrées [N, h_feats*B]
+            spec_stats,      # SC et HFR [N, 2]
+            structure_feats, # Features de structure locale [N, 6]
+            cluster_feats,   # Features basées sur le clustering [N, K+3]
+            E_deviations     # Déviations énergétiques par cluster [N, B]
+        ], dim=-1)
+        
+        
+        if training:
+            print(f"\nFeature dimensions:")
+            print(f"h_spectral: {h_spectral.shape}")
+            print(f"spec_stats: {spec_stats.shape}")
+            print(f"structure_feats: {structure_feats.shape}")
+            print(f"cluster_feats: {cluster_feats.shape}")
+            print(f"E_deviations: {E_deviations.shape}")
+            print(f"h_final: {h_final.shape}")
+        
+        
+        if save_embeddings:
+            self.last_spec_stats = spec_stats.detach()
+            self.last_structure_feats = structure_feats.detach()
+            self.last_cluster_feats = cluster_feats.detach()
+            self.last_E_deviations = E_deviations.detach()
+            self.last_h_final = h_final.detach()
+        
+        # 2 dernieres couches 
+        out = self.mlp(h_final, False)
+        return out
 
 
 class GCN(nn.Module):
