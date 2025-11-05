@@ -678,6 +678,185 @@ class BWGNNCyril(nn.Module):
         return out
 
 
+class BWGNNCyril_noCluster(nn.Module):   # ### MODIF : nom explicite pour la version sans cluster features
+    def __init__(self, in_feats, h_feats=32, num_classes=2, num_layers=2, mlp_layers=2,
+                 dropout_rate=0, activation='ReLU', num_clusters=8, **kwargs):
+        super(BWGNNCyril_noCluster, self).__init__()
+        
+        self.thetas = calculate_theta(d=num_layers)
+        self.conv = []
+        for i in range(len(self.thetas)):
+            self.conv.append(PolyConv(self.thetas[i]))
+        
+        self.linear = nn.Linear(in_feats, h_feats)
+        self.linear2 = nn.Linear(h_feats, h_feats)
+        self.act = getattr(nn, activation)()
+        self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity()
+        
+        # --- BWGNN original spectral params ---
+        B = len(self.conv)
+        d = B - 1
+        ref_param = self.linear.weight
+        i = torch.arange(1, B+1, device=ref_param.device, dtype=ref_param.dtype)
+        den = torch.tensor(d+2, device=i.device, dtype=i.dtype)
+        c = 2.0*i/den
+        self.register_buffer("c", c)
+        self.lambda0 = 1.2
+        
+        # --- Clustering spectral (on garde pour SC/HFR mais plus pour features cluster) ---
+        self.num_clusters = num_clusters
+        self.register_buffer("cached_cluster_labels", None)
+        self.register_buffer("cached_spectral_embed", None)
+        
+        # --- Dimensions conservées / ajustées ---
+        self.B = B
+        self.spectral_features = 2    # SC, HFR
+        self.structure_features = 2   # degré normalisé + densité locale
+        # self.cluster_features supprimé  ### MODIF
+        self.energy_features = B       # déviations énergétiques
+        
+        # --- MLP : on retire les 4 dims des cluster_features --- ###
+        total_features = (
+            h_feats * B +             # filtrage spectral
+            self.spectral_features +  # SC + HFR
+            self.structure_features + # features structurelles
+            self.energy_features      # déviations énergétiques
+        )
+        
+        print(f"Initializing MLP with input size: {total_features}")  
+        self.mlp = MLP(total_features, h_feats, num_classes, mlp_layers, dropout_rate)
+        
+        self.register_buffer("cached_local_hf", None)
+        
+
+    def spectral_clustering(self, graph, num_clusters=8):
+        """On garde cette fonction inchangée, car elle est utilisée pour SC/HFR"""
+        device = next(self.parameters()).device
+        N = graph.num_nodes()
+        degs = graph.in_degrees().float().clamp(min=1e-12)
+        inv_sqrt_degs = torch.pow(degs, -0.5)
+        graph.ndata['inv_sqrt_deg'] = inv_sqrt_degs
+
+        num_iters = 5
+        U = torch.randn(N, num_clusters, device=device)
+        U = U - U.mean(dim=0, keepdim=True)
+        U = U / torch.norm(U, dim=0, keepdim=True)
+        for _ in range(num_iters):
+            with graph.local_scope():
+                graph.ndata['h'] = U * graph.ndata['inv_sqrt_deg'].unsqueeze(1)
+                graph.update_all(fn.copy_u('h', 'm'), fn.sum('m', 'h'))
+                U_new = graph.ndata.pop('h') * graph.ndata['inv_sqrt_deg'].unsqueeze(1)
+                U = U - U_new
+                for i in range(U.shape[1]):
+                    q = U[:, i:i+1]
+                    if i > 0:
+                        q = q - (U[:, :i] @ (U[:, :i].t() @ q))
+                    U[:, i:i+1] = q / (q.norm() + 1e-8)
+        U = U.cpu().numpy()
+        kmeans = KMeans(n_clusters=num_clusters, n_init=10, random_state=42)
+        cluster_labels = kmeans.fit_predict(U)
+        cluster_labels = torch.from_numpy(cluster_labels).to(device).long()
+        U = torch.from_numpy(U).to(device).float()
+        return cluster_labels, U
+
+
+    def compute_structure_features(self, h, graph):
+        """Inchangé"""
+        device = h.device
+        N = graph.num_nodes()
+        eps = 1e-8
+        degrees = graph.in_degrees().float().to(device)
+        with graph.local_scope():
+            graph.ndata['v'] = torch.ones(N, device=device)
+            graph.update_all(fn.copy_u('v', 'm'), fn.sum('m', 'n_nbrs'))
+            n_nbrs = graph.ndata['n_nbrs']
+            graph.apply_edges(lambda edges: {'same_nbr': edges.src['n_nbrs'] * edges.dst['n_nbrs']})
+            graph.update_all(fn.copy_e('same_nbr', 'm'), fn.sum('m', 'edge_count'))
+            edge_count = graph.ndata.pop('edge_count')
+            max_possible = n_nbrs * (n_nbrs - 1)
+            local_density = edge_count / (max_possible + eps)
+        structure_feats = torch.stack([
+            degrees / (degrees.mean() + eps),
+            local_density
+        ], dim=1)
+        return structure_feats
+
+
+    def forward(self, graph, training=False, save_embeddings=False, node_ids=None):
+        """Même logique, sans appel à compute_cluster_features"""
+        in_feat = graph.ndata['feature']
+        h = self.linear(in_feat)
+        h = self.act(h)
+        h = self.linear2(h)
+        h = self.act(h)
+        
+        # --- filtrage spectral par bandes ---
+        branch_outs = [conv(graph, h) for conv in self.conv]
+        h_spectral = torch.cat(branch_outs, dim=-1)
+        h_spectral = self.dropout(h_spectral)
+        
+        # --- features spectrales ---
+        E = torch.stack([(o ** 2).sum(dim=1) for o in branch_outs], dim=1)
+        E_sum = (E.sum(dim=1, keepdim=True) + 1e-12)
+        SC = (E @ self.c) / E_sum.squeeze(1)
+        HFR = (E @ (self.c >= self.lambda0).float()) / E_sum.squeeze(1)
+        spec_stats = torch.stack([SC, HFR], dim=1)
+        
+        # --- structure locale ---
+        structure_feats = self.compute_structure_features(h, graph)
+        
+        # --- spectral clustering toujours utilisé pour E_deviations ---
+        if self.training or self.cached_cluster_labels is None:
+            with torch.no_grad():
+                cluster_labels, U = self.spectral_clustering(graph, self.num_clusters)
+                self.cached_cluster_labels = cluster_labels
+        else:
+            cluster_labels = self.cached_cluster_labels
+
+        # --- calcul E_deviations, comme avant ---
+        with torch.no_grad():
+            K = self.num_clusters
+            N, B = E.shape
+            cluster_sums = torch.zeros(K, B, device=E.device)
+            cluster_counts = torch.zeros(K, device=E.device)
+            cluster_counts.scatter_add_(0, cluster_labels, torch.ones_like(cluster_labels, dtype=torch.float))
+            for b in range(B):
+                cluster_sums[:, b].scatter_add_(0, cluster_labels, E[:, b])
+            safe_counts = cluster_counts.clamp(min=1).unsqueeze(1)
+            cluster_means = cluster_sums / safe_counts
+            cluster_vars = torch.zeros(K, B, device=E.device)
+            squared_diff = (E - cluster_means[cluster_labels]) ** 2
+            for b in range(B):
+                cluster_vars[:, b].scatter_add_(0, cluster_labels, squared_diff[:, b])
+            cluster_vars = cluster_vars / safe_counts + 1e-8
+            E_deviations = (E - cluster_means[cluster_labels]) / torch.sqrt(cluster_vars[cluster_labels])
+        
+        # --- concaténation sans cluster_feats --- ### MODIF
+        h_final = torch.cat([
+            h_spectral,
+            spec_stats,
+            structure_feats,
+            E_deviations
+        ], dim=-1)
+        
+        if training:
+            print(f"\nFeature dimensions:")
+            print(f"h_spectral: {h_spectral.shape}")
+            print(f"spec_stats: {spec_stats.shape}")
+            print(f"structure_feats: {structure_feats.shape}")
+            print(f"E_deviations: {E_deviations.shape}")
+            print(f"h_final: {h_final.shape}")
+        
+        if save_embeddings:
+            self.last_spec_stats = spec_stats.detach()
+            self.last_structure_feats = structure_feats.detach()
+            self.last_E_deviations = E_deviations.detach()
+            self.last_h_final = h_final.detach()
+        
+        out = self.mlp(h_final, False)
+        return out
+
+
 class GCN(nn.Module):
     def __init__(self, in_feats, h_feats=32, num_classes=2, num_layers=2, mlp_layers=1, dropout_rate=0,
                  activation='ReLU', **kwargs):
