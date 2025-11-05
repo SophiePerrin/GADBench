@@ -87,8 +87,17 @@ for model in models:
                 data.clusters = None
             ########
             detector = model_detector_dict[model](train_config, model_config, data)
+
+            # ✅ Forward factice pour initialiser le clustering spectral et caches internes
+            with torch.no_grad():
+                detector(
+                    data.graph,
+                    training=False,            # on ne fait pas de backward ici
+                    save_embeddings=args.save_embeddings,
+                    node_ids=None)
             st = time.time()
             print(detector.model)
+            ########################################
             
             # Configuration des exports d'embeddings
             if args.save_embeddings:
@@ -101,12 +110,18 @@ for model in models:
                     f"trial_{t}"
                 )
                 os.makedirs(embed_dir, exist_ok=True)
-                
+    
                 # Ajouter les informations d'export au détecteur
                 detector.embeddings_config = {
                     'save_embeddings': True,
                     'output_dir': embed_dir,
                 }
+                
+                embeddings = detector.export_embeddings(
+                    embed_dir,
+                    node_ids=None,
+                    split_type="all"
+                    )
                 
                 # Sauvegarder les métadonnées du run
                 import json
