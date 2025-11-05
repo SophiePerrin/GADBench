@@ -11,7 +11,7 @@ from scipy.special import comb
 import math
 import copy
 import numpy as np
-from tqdm import tqdm
+
 
 class PolyConv(nn.Module):
     def __init__(self, theta):
@@ -271,7 +271,7 @@ class BWGNNpostconv(nn.Module):
 class BWGNNCyril(nn.Module):
     def __init__(self, in_feats, h_feats=32, num_classes=2, num_layers=2, mlp_layers=2, dropout_rate=0,
                  activation='ReLU', num_clusters=8, **kwargs):
-        super(BWGNN, self).__init__()
+        super(BWGNNCyril, self).__init__()
         self.thetas = calculate_theta(d=num_layers)
         self.conv = []
         for i in range(len(self.thetas)):

@@ -1,0 +1,9 @@
+{
+  "dataset": "reddit",
+  "model": "BWGNNCyril",
+  "semi_supervised": false,
+  "inductive": false,
+  "trial": 5,
+  "seed": 3457,
+  "timestamp": "20251105-123413"
+}

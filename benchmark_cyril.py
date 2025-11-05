@@ -81,6 +81,11 @@ for model in models:
             seed = seed_list[t]
             set_seed(seed)
             train_config['seed'] = seed
+            ########
+            # ✅ Patch de compatibilité : certains modèles attendent un attribut 'clusters'
+            if not hasattr(data, "clusters"):
+                data.clusters = None
+            ########
             detector = model_detector_dict[model](train_config, model_config, data)
             st = time.time()
             print(detector.model)
