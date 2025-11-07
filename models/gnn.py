@@ -209,6 +209,7 @@ class BWGNN(nn.Module):
         return h
 
 
+
 class BWGNNTout(nn.Module):
     def __init__(self, in_feats, h_feats=32, num_classes=2, num_layers=2, mlp_layers=2,
                  dropout_rate=0, activation='ReLU', num_clusters=8, cluster_dropout=0, **kwargs):
@@ -253,12 +254,8 @@ class BWGNNTout(nn.Module):
         self.spectral_features = 2    # SC et HFR
         # self.structure_features = 2   # degré normalisé + densité locale
 
-        total_features = (
-            h_feats * B +            # features spectrales filtrées
-            self.spectral_features  # +  # SC + HFR
-            # self.structure_features   # structure locale
-        )
- 
+        total_features = B * (h_feats + self.cluster_dim) + self.spectral_features
+
         print(f"Initializing MLP with input size: {total_features}")
         self.mlp = MLP(total_features, h_feats, num_classes, mlp_layers, dropout_rate)
 
