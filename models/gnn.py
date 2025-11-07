@@ -208,6 +208,200 @@ class BWGNN(nn.Module):
         h = self.mlp(h_final, False)
         return h
 
+class BWGNNTout(nn.Module):
+    def __init__(self, in_feats, h_feats=32, num_classes=2, num_layers=2, mlp_layers=2,
+                 dropout_rate=0, activation='ReLU', num_clusters=8, cluster_dropout=0, **kwargs):
+        super(BWGNNTout, self).__init__()
+        
+        # --- mêmes éléments que dans BWGNN original ---
+        self.thetas = calculate_theta(d=num_layers)
+        self.conv = []
+        for i in range(len(self.thetas)):
+            self.conv.append(PolyConv(self.thetas[i]))
+        
+        self.linear = nn.Linear(in_feats, h_feats)
+        self.linear2 = nn.Linear(h_feats, h_feats)
+
+        self.cluster_dim = kwargs.get("cluster_dim", 0)         # ###
+        self.concat_dim = h_feats + self.cluster_dim
+        self.mlp_input_dim = self.concat_dim * len(self.conv)   # ###
+        self.cluster_dropout = nn.Dropout(cluster_dropout) if cluster_dropout > 0 else nn.Identity()  # ### #
+
+        self.act = getattr(nn, activation)()
+        self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity()
+        
+        # --- paramètres spectraux conservés ---
+        B = len(self.conv)
+        d = B - 1
+        ref_param = self.linear.weight
+        i = torch.arange(1, B + 1, device=ref_param.device, dtype=ref_param.dtype)
+        den = torch.tensor(d + 2, device=i.device, dtype=i.dtype)
+        c = 2.0 * i / den
+        self.register_buffer("c", c)
+        self.lambda0 = 1.2
+        
+        # --- buffers (compatibilité avec export_embeddings) ---
+        self.num_clusters = num_clusters
+        self.register_buffer("cached_cluster_labels", None)
+        self.register_buffer("cached_spectral_embed", None)
+        self.register_buffer("degree_bands", torch.tensor([0.2, 0.4, 0.6, 0.8]))
+        self.register_buffer("cached_local_hf", None)
+
+        # --- dimensions (SC + HFR + structure locale uniquement) ---
+        self.B = B
+        self.spectral_features = 2    # SC et HFR
+        # self.structure_features = 2   # degré normalisé + densité locale
+
+        total_features = (
+            h_feats * B +            # features spectrales filtrées
+            self.spectral_features +
+            self.mlp_input_dim  # +  # SC + HFR
+            # self.structure_features   # structure locale
+        )
+
+        print(f"Initializing MLP with input size: {total_features}")
+        self.mlp = MLP(total_features, h_feats, num_classes, mlp_layers, dropout_rate)
+
+    def spectral_clustering(self, graph, num_clusters=8):
+        # Méthode conservée pour compatibilité, non utilisée ici
+        device = next(self.parameters()).device
+        N = graph.num_nodes()
+        degs = graph.in_degrees().float().clamp(min=1e-12)
+        inv_sqrt_degs = torch.pow(degs, -0.5)
+        graph.ndata['inv_sqrt_deg'] = inv_sqrt_degs
+
+        num_iters = 5
+        U = torch.randn(N, num_clusters, device=device)
+        U = U - U.mean(dim=0, keepdim=True)
+        U = U / torch.norm(U, dim=0, keepdim=True)
+        for _ in range(num_iters):
+            with graph.local_scope():
+                graph.ndata['h'] = U * graph.ndata['inv_sqrt_deg'].unsqueeze(1)
+                graph.update_all(fn.copy_u('h', 'm'), fn.sum('m', 'h'))
+                U_new = graph.ndata.pop('h') * graph.ndata['inv_sqrt_deg'].unsqueeze(1)
+                U = U - U_new
+                for i in range(U.shape[1]):
+                    q = U[:, i:i+1]
+                    if i > 0:
+                        q = q - (U[:, :i] @ (U[:, :i].t() @ q))
+                    U[:, i:i+1] = q / (q.norm() + 1e-8)
+        U = U.cpu().numpy()
+        kmeans = KMeans(n_clusters=num_clusters, n_init=10, random_state=42)
+        cluster_labels = kmeans.fit_predict(U)
+        cluster_labels = torch.from_numpy(cluster_labels).to(device).long()
+        U = torch.from_numpy(U).to(device).float()
+        return cluster_labels, U
+
+    def compute_structure_features(self, h, graph):
+        device = h.device
+        N = graph.num_nodes()
+        eps = 1e-8
+        degrees = graph.in_degrees().float().to(device)
+        with graph.local_scope():
+            graph.ndata['v'] = torch.ones(N, device=device)
+            graph.update_all(fn.copy_u('v', 'm'), fn.sum('m', 'n_nbrs'))
+            n_nbrs = graph.ndata['n_nbrs']
+            graph.apply_edges(lambda edges: {'same_nbr': edges.src['n_nbrs'] * edges.dst['n_nbrs']})
+            graph.update_all(fn.copy_e('same_nbr', 'm'), fn.sum('m', 'edge_count'))
+            edge_count = graph.ndata.pop('edge_count')
+            max_possible = n_nbrs * (n_nbrs - 1)
+            local_density = edge_count / (max_possible + eps)
+        structure_feats = torch.stack([
+            degrees / (degrees.mean() + eps),
+            local_density
+        ], dim=1)
+        return structure_feats
+
+    def export_embeddings(self, output_dir, node_ids=None, split_type="all"):
+        import os
+        import numpy as np
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        def process_features(features, name):
+            features_np = features.cpu().numpy()
+            if node_ids is not None:
+                features_np = features_np[node_ids]
+            return features_np
+
+        if hasattr(self, 'last_h_final'):
+            features = process_features(self.last_h_final, 'combined')
+            output_file = os.path.join(output_dir, f'embeddings_noclusteraware_{split_type}.npy')
+            np.save(output_file, features)
+            print(f"\nEmbeddings sauvegardés dans: {output_file}")
+            print(f"Dimensions: {features.shape}")
+            print(f"Structure des features:")
+            print(f"- Spectrales filtrées: {self.B * self.linear2.out_features} dimensions")
+            print(f"- SC et HFR: 2 dimensions")
+            print(f"- Structure locale: 2 dimensions (degré norm., densité locale)")
+            if len(features) > 1:
+                print("\nPremiers embeddings (2 exemples):")
+                print(features[:2])
+            return features
+
+    def forward(self, graph, clusters, training=False, save_embeddings=False, node_ids=None):
+        in_feat = graph.ndata['feature']
+        h = self.linear(in_feat)
+        h = self.act(h)
+        h = self.linear2(h)
+        h = self.act(h)
+        
+
+        # Gestion de clusters : tenseur ou None
+        if clusters is None:
+            clusters = torch.zeros((h.shape[0], self.cluster_dim), device=h.device, dtype=h.dtype)
+        else:
+            # Conversion de clusters en tenseur, avec type et device cohérents # ###
+            if isinstance(clusters, np.ndarray):
+                clusters = torch.from_numpy(clusters)
+        clusters = clusters.to(h.device).to(h.dtype)
+        if self.cluster_dim > 0:
+            clusters = clusters / (clusters.norm(p=2, dim=1, keepdim=True) + 1e-6)  # ### # normalisation ajoutée
+
+        clusters = self.cluster_dropout(clusters)  # ### # dropout sur clusters ajouté
+
+        # Vérification de la compatibilité (même nombre de nœuds)
+        assert clusters.shape[0] == h.shape[0], "Dimension 0 de clusters doit correspondre au nombre de nœuds"
+
+        # Concaténation des features classiques et hyperboliques
+        h = torch.cat((h, clusters), dim=1)                               # ###
+
+        # h_final = torch.zeros([len(in_feat), 0], device=h.device)
+
+        # filtrage spectral par bandes
+        branch_outs = [conv(graph, h) for conv in self.conv]
+        h_spectral = torch.cat(branch_outs, dim=-1)
+        h_spectral = self.dropout(h_spectral)
+        
+        # spec_features : SC + HFR
+        E = torch.stack([(o ** 2).sum(dim=1) for o in branch_outs], dim=1)
+        E_sum = (E.sum(dim=1, keepdim=True) + 1e-12)
+        SC = (E @ self.c) / E_sum.squeeze(1)
+        HFR = (E @ (self.c >= self.lambda0).float()) / E_sum.squeeze(1)
+        spec_stats = torch.stack([SC, HFR], dim=1)
+        
+        # structure locale
+        structure_feats = self.compute_structure_features(h, graph)
+        
+        # concaténation finale
+        # h_final = torch.cat([h_spectral, spec_stats, structure_feats], dim=-1)
+        h_final = torch.cat([h_spectral, spec_stats], dim=-1)
+
+        if training:
+            print(f"\nFeature dimensions:")
+            print(f"h_spectral: {h_spectral.shape}")
+            print(f"spec_stats: {spec_stats.shape}")
+            print(f"structure_feats: {structure_feats.shape}")
+            print(f"h_final: {h_final.shape}")
+        
+        if save_embeddings:
+            self.last_spec_stats = spec_stats.detach()
+            # self.last_structure_feats = structure_feats.detach()
+            self.last_h_final = h_final.detach()
+        
+        out = self.mlp(h_final, False)
+        return out
+
 
 class BWGNNpostconv(nn.Module):
     def __init__(self, in_feats, h_feats=32, num_classes=2, num_layers=2, mlp_layers=2, dropout_rate=0,
