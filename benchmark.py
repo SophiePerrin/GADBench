@@ -135,6 +135,7 @@ for model in models:
                 # Résultats du clustering spectral
                 # clusters = np.load(f"/home/onyxia/work/GADBench/results/{dataset_name}/y_spectral.npy")
                 clusters = np.load(f"/home/onyxia/work/GADBench/embeddings/{dataset_name}/BWGNNCyril_noCluster/{args.sup}/trial_9/embeddings_noclusteraware_all.npy")
+                clusters = clusters / (np.linalg.norm(clusters, axis=1, keepdims=True) + 1e-6)
                 # data.clusters = clusters.reshape(-1, 1)
                 # cluster_dim = 1
                 data.clusters = np.array(clusters, copy=True)
@@ -146,6 +147,10 @@ for model in models:
                 clusters_spectr0 = np.load(f"/home/onyxia/work/GADBench/embeddings/{dataset_name}/BWGNNCyril_noCluster/{args.sup}/trial_9/embeddings_noclusteraware_all.npy")
                 # clusters_spectr = clusters_spectr0.reshape(-1,1)
                 clusters_spectr = np.array(clusters_spectr0, copy=True)
+               
+                # 🔹 Normalisation des embeddings spectraux
+                clusters_spectr = clusters_spectr / (np.linalg.norm(clusters_spectr, axis=1, keepdims=True) + 1e-6)
+    
                 if clusters_hyp.shape[0] != clusters_spectr.shape[0]:
                     raise ValueError(
                         f"Incompatibilité de dimensions : "
