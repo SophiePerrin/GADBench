@@ -227,7 +227,7 @@ for model in models:
 
                 print(f"Embeddings and metrics saved in {embed_dir}")
 
-            del detector, data
+        del detector, data
 
         model_result[dataset_name+'-AUROC mean'] = np.mean(auc_list)
         model_result[dataset_name+'-AUROC std'] = np.std(auc_list)
