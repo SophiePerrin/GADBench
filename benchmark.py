@@ -69,6 +69,7 @@ def load_data_s3(name, dataset_name, param_hyp=None):               # ###
 parser = argparse.ArgumentParser()
 parser.add_argument('--trials', type=int, default=10)
 parser.add_argument('--semi_supervised', type=int, default=0)
+parser.add_argument('--sup', type=str, default=None)
 parser.add_argument('--inductive', type=int, default=0)
 parser.add_argument('--models', type=str, default=None)
 parser.add_argument('--datasets', type=str, default=None)
@@ -132,15 +133,19 @@ for model in models:
 
             case _ if args.use_clusters_spectr:
                 # Résultats du clustering spectral
-                clusters = np.load(f"/home/onyxia/work/GADBench/results/{dataset_name}/y_spectral.npy")
-                data.clusters = clusters.reshape(-1, 1)
-                cluster_dim = 1
+                # clusters = np.load(f"/home/onyxia/work/GADBench/results/{dataset_name}/y_spectral.npy")
+                clusters = np.load(f"/home/onyxia/work/GADBench/embeddings/{dataset_name}/BWGNNCyril_noCluster/{args.sup}/trial_9/embeddings_noclusteraware_all.npy")
+                # data.clusters = clusters.reshape(-1, 1)
+                # cluster_dim = 1
+                data.clusters = np.array(clusters, copy=True)
 
             case _ if args.use_clusters_tout:
                 # Concaténation des deux sources
                 clusters_hyp = load_data_s3("leaves_emb", dataset_name, args.param_hyp)
-                clusters_spectr0 = np.load(f"/home/onyxia/work/GADBench/results/{dataset_name}/y_spectral.npy")
-                clusters_spectr = clusters_spectr0.reshape(-1,1)
+                # clusters_spectr0 = np.load(f"/home/onyxia/work/GADBench/results/{dataset_name}/y_spectral.npy")
+                clusters_spectr0 = np.load(f"/home/onyxia/work/GADBench/embeddings/{dataset_name}/BWGNNCyril_noCluster/{args.sup}/trial_9/embeddings_noclusteraware_all.npy")
+                # clusters_spectr = clusters_spectr0.reshape(-1,1)
+                clusters_spectr = np.array(clusters_spectr0, copy=True)
                 if clusters_hyp.shape[0] != clusters_spectr.shape[0]:
                     raise ValueError(
                         f"Incompatibilité de dimensions : "
