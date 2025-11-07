@@ -54,6 +54,7 @@ model_detector_dict = {
     'BWGNNpostconv':BaseGNNDetector,
     'BWGNNCyril':BaseGNNDetector,
     'BWGNNCyril_noCluster':BaseGNNDetector,
+    'BWGNNTout':BaseGNNDetector,
 
     # Heterogeneous GNNs
     'RGCN': HeteroGNNDetector,

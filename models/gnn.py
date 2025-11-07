@@ -208,6 +208,7 @@ class BWGNN(nn.Module):
         h = self.mlp(h_final, False)
         return h
 
+
 class BWGNNTout(nn.Module):
     def __init__(self, in_feats, h_feats=32, num_classes=2, num_layers=2, mlp_layers=2,
                  dropout_rate=0, activation='ReLU', num_clusters=8, cluster_dropout=0, **kwargs):
@@ -224,7 +225,7 @@ class BWGNNTout(nn.Module):
 
         self.cluster_dim = kwargs.get("cluster_dim", 0)         # ###
         self.concat_dim = h_feats + self.cluster_dim
-        self.mlp_input_dim = self.concat_dim * len(self.conv)   # ###
+        # self.mlp_input_dim = self.concat_dim * len(self.conv)   # ###
         self.cluster_dropout = nn.Dropout(cluster_dropout) if cluster_dropout > 0 else nn.Identity()  # ### #
 
         self.act = getattr(nn, activation)()
@@ -254,11 +255,10 @@ class BWGNNTout(nn.Module):
 
         total_features = (
             h_feats * B +            # features spectrales filtrées
-            self.spectral_features +
-            self.mlp_input_dim  # +  # SC + HFR
+            self.spectral_features  # +  # SC + HFR
             # self.structure_features   # structure locale
         )
-
+ 
         print(f"Initializing MLP with input size: {total_features}")
         self.mlp = MLP(total_features, h_feats, num_classes, mlp_layers, dropout_rate)
 
@@ -346,7 +346,6 @@ class BWGNNTout(nn.Module):
         h = self.linear2(h)
         h = self.act(h)
         
-
         # Gestion de clusters : tenseur ou None
         if clusters is None:
             clusters = torch.zeros((h.shape[0], self.cluster_dim), device=h.device, dtype=h.dtype)
